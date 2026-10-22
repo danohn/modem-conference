@@ -37,9 +37,13 @@ dependency. `h324`'s included notices describe the provenance and separate terms
 of its ASN.1 definitions. No ITU recommendation PDF or lab capture is distributed.
 
 Nuitka, ordered-set, zstandard and (on Linux) patchelf are build tools, not shipped
-as command-line tools in the application. Nuitka's compiler license and runtime
-exception apply to its own material; compiling does not change the license of
-our application. See <https://nuitka.net/pages/overview.html#license>.
+as command-line tools in the application. Nuitka's C runtime is linked into the
+native executables. Its AGPL-3.0-or-later license, **Nuitka Runtime Library
+Exception 1.0**, and distributed inline third-party license texts are included
+under the native notices. The exception permits independent application modules
+compiled with that runtime to retain their own license. See the exact installed
+Nuitka 4.3.1 `LICENSE-RUNTIME.txt` and `LICENSE.txt`, and
+<https://nuitka.net/pages/overview.html#license>.
 
 FFmpeg and ffprobe **executables** are external dependencies and are not bundled
 in these downloads. Their license depends on the independently installed build

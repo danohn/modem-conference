@@ -38,13 +38,15 @@ def copy_notices(destination: Path) -> None:
     if not (ROOT / "LICENSES" / "manifest.json").is_file():
         raise RuntimeError("Vendored native-runtime license manifest is missing")
     shutil.copytree(ROOT / "LICENSES", destination / "upstream", dirs_exist_ok=True)
-    # Include license texts shipped by all installed runtime dependencies. Build
-    # tools are excluded because their executables are not distributed.
+    # Include runtime dependency licenses plus Nuitka's linked C runtime and
+    # Runtime Library Exception. The compiler executable is not distributed.
     for name in ("modem-conference", "h324", "PySide6", "PySide6_Essentials",
                  "PySide6_Addons", "shiboken6", "pyserial", "asn1tools",
-                 "bitstruct", "pyparsing", "platformdirs"):
+                 "bitstruct", "pyparsing", "platformdirs", "Nuitka"):
         dist = metadata.distribution(name)
         for file in dist.files or ():
+            if name == "Nuitka" and file.suffix == ".j2":
+                continue  # A license-report code template is not a license text.
             if any(part.lower() in {"licenses", "license", "copying"} for part in file.parts) or (
                 file.name.upper().startswith(("LICENSE", "COPYING", "NOTICE"))
             ):
