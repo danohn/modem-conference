@@ -54,6 +54,15 @@ def main() -> int:
                 report = json.loads(result.stdout.strip().splitlines()[-1])
                 if report.get("helper") is not True or report.get("asset") is not True:
                     raise RuntimeError("Native helper is missing its packaged application asset")
+                activity = report.get("activity", {})
+                started, released = activity.get("started", {}), activity.get("released", {})
+                if sys.platform == "darwin":
+                    if started.get("supported") is not True or started.get("active") is not True:
+                        raise RuntimeError("Native macOS call activity assertion did not start")
+                elif started.get("supported") is not False or started.get("active") is not False:
+                    raise RuntimeError("Native call activity must be a no-op on this platform")
+                if released.get("active") is not False:
+                    raise RuntimeError("Native helper did not release its call activity assertion")
             elif argv[1:] == ["worker", "--self-test"]:
                 report = json.loads(result.stdout.strip().splitlines()[-1])
                 if report.get("ready") is not True or report.get("protocol_version") != 1:
