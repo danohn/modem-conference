@@ -128,8 +128,8 @@ def main() -> int:
     if args.jobs < 1:
         parser.error("--jobs must be positive")
     import PySide6
-    if not PySide6.__version__.startswith("6.12."):
-        raise RuntimeError("Native previews require Qt/PySide 6.12.x")
+    if PySide6.__version__ != "6.12.0":
+        raise RuntimeError("Native previews require Qt/PySide 6.12.0 to match their notices")
     version = metadata.version("modem-conference")
     work = ROOT / "build" / "native"
     output = ROOT / "dist" / "native"
