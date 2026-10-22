@@ -3,6 +3,29 @@
 Software installation, native launch, capture devices and physical modem calls
 are separate checks. This record deliberately distinguishes them.
 
+## Published alpha
+
+[`0.1.0a1` on PyPI](https://pypi.org/project/modem-conference/0.1.0a1/) and the
+[GitHub alpha release](https://github.com/danohn/modem-conference/releases/tag/v0.1.0a1)
+were published from `a6273e8b421dfcedf321340b177f2e3de8c724c3` through the
+[production workflow](https://github.com/danohn/modem-conference/actions/runs/39730464679).
+The supported-runtime matrix used released `h324==0.1.0a1`; TestPyPI exact-wheel
+verification and clean installation passed before all four native builds and
+PyPI Trusted Publishing. A subsequent clean macOS installation from production
+PyPI passed helper, worker, resources and offscreen GUI startup outside the
+checkout in a path containing spaces.
+
+The four released native archives passed relocation/startup, content audit and
+independent checksum verification. Each manifest records the released-index
+library dependency, Python 3.14 and Qt 6.12. Linux additionally passed the clean
+Ubuntu 24.04 container without system Python, uv or FFmpeg executables. Public
+Python distribution hashes match the audited immutable build; the GitHub
+release supplies native archives, wheel/source distributions, individual native
+checksums and a combined `SHA256SUMS`. Physical hardware boundaries and the
+unresolved live-call delay below remain applicable.
+
+## Software and hardware evidence
+
 | Area | Current evidence |
 |---|---|
 | Core protocols and async API | [284 installed-wheel tests on all 12 OS/Python combinations](https://github.com/danohn/h324/actions/runs/39727978028) |
