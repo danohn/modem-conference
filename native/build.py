@@ -228,7 +228,9 @@ def main() -> int:
                 "platform": sys.platform, "machine": platform.machine(),
                 "qt": PySide6.__version__, "nuitka": metadata.version("Nuitka"),
                 "h324": metadata.version("h324"), "signed": False,
-                "ffmpeg_bundled": False, "core_ref": os.environ.get("H324_BUILD_REF", "released-index")}
+                "ffmpeg_executables_bundled": False,
+                "qt_multimedia_ffmpeg_backend_libraries": "Qt runtime; see notices",
+                "core_ref": os.environ.get("H324_BUILD_REF", "released-index")}
     (notices / "build.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     if sys.platform == "darwin":
         # Editing Info.plist and adding the helper invalidates Nuitka's ad-hoc
