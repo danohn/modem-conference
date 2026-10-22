@@ -25,6 +25,11 @@ export MODEM_CONFERENCE_LOG_DIR="$temporary/logs"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
+# Report optional as well as required unresolved shared-library dependencies in
+# one pass. Actual launch checks below remain authoritative; an unused plugin
+# may legitimately require a desktop service that this offscreen test omits.
+find /opt/app -type f -name '*.so*' -exec ldd {} + 2>/dev/null | grep 'not found' | sort -u || true
+
 helper_report=$(timeout 45 /opt/app/helper/modem-conference-helper --self-test)
 printf '%s\n' "$helper_report"
 printf '%s\n' "$helper_report" | grep -Eq '"helper":[[:space:]]*true'
