@@ -1,5 +1,8 @@
 from modem_conference.acceptance import (accepted_bearer, CaptureMetrics,
-                                        transmission_clock, capture_duration_accepted)
+                                        transmission_clock, capture_duration_accepted,
+                                        station_plan, duration_outcome)
+from types import SimpleNamespace
+import pytest
 
 
 def carrier_report():
@@ -60,3 +63,30 @@ def test_permission_delay_cannot_turn_short_capture_into_a_full_duration_pass():
             'outgoing_frames':{1:19800,2:1000}}
     assert capture_duration_accepted(full, 600.)
     assert not capture_duration_accepted({**full, 'outgoing_frames':{1:100,2:1000}}, 600.)
+
+
+def test_single_station_has_only_explicit_local_ownership_and_role():
+    args = SimpleNamespace(mode='station', port='COM7', role='answer', number=None,
+                           source='camera', bundle=None, exercise_video_overload=False)
+    assert station_plan(args) == (['camera'], ['COM7'], [None])
+    args.role = 'dial'
+    with pytest.raises(ValueError, match='--number'):
+        station_plan(args)
+    args.number = '5550123'
+    assert station_plan(args)[1] == ['COM7']
+    args.port = None
+    with pytest.raises(ValueError, match='--port'):
+        station_plan(args)
+
+
+def test_simulated_single_station_waits_for_media_and_rejects_early_remote_hangup():
+    metrics = {'1':CaptureMetrics()}
+    assert transmission_clock(['camera'], metrics, 10.) is None
+    assert duration_outcome(None, 600., True, 5.) == 'early_disconnect'
+    metrics['1'].started_at = 45.  # Selected/authorized after call connection.
+    start = transmission_clock(['camera'], metrics, 10.)
+    assert start == 45.
+    assert duration_outcome(644.-start, 600., True, 5.) == 'early_disconnect'
+    assert duration_outcome(645.-start, 600., False, 5.) == 'continue'
+    assert duration_outcome(645.-start, 600., True, 5.) == 'complete'
+    assert duration_outcome(650.-start, 600., False, 5.) == 'complete'

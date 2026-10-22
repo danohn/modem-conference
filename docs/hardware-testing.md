@@ -13,6 +13,54 @@ the extracted application directory, use the console helper (quote paths with sp
 & '.\helper\modem-conference-helper.exe' acceptance --mode stress --seconds 600 --output '.\acceptance-stress.json'
 ```
 
+## One modem on Windows, one modem on another computer
+
+Each computer runs **one local station**. It owns only the explicitly supplied
+port and exchanges media with the remote endpoint over the telephone connection.
+No shared filesystem or network control connection is required.
+
+On Windows, list ports and device IDs without opening a modem or capture device:
+
+```powershell
+& '.\helper\modem-conference-helper.exe' acceptance --list-devices
+```
+
+Then start the answering endpoint, replacing `COM7` with its actual modem port:
+
+```powershell
+& '.\helper\modem-conference-helper.exe' acceptance --mode station --role answer --port COM7 --source camera --seconds 600 --timeout 180 --output '.\windows-station.json'
+```
+
+Choose the camera, microphone and optional speakers in the Devices dialog before
+the modem starts listening. The console prints **READY listening** after the
+modem is ready. Use headphones. Received audio starts muted; uncheck **Mute
+audio** in the window to listen. Device IDs can instead be supplied explicitly
+with `--camera HEX_ID --microphone HEX_ID`.
+
+After READY, start the other computer's dialing station with its local port
+and the telephone number reaching the Windows modem. For example, through a
+macOS source-install launcher:
+
+```sh
+'PATH_TO_APP/Contents/MacOS/modem-conference' --python -m modem_conference.helper acceptance \
+  --mode station --role dial --port LOCAL_MODEM_PORT --number REMOTE_NUMBER \
+  --source camera --seconds 600 --timeout 180 --output mac-station.json
+```
+
+For native macOS/Linux, invoke the bundled helper with the same `acceptance`
+arguments. A file source uses `--source file --bundle PREPARED_DIRECTORY`.
+The answering endpoint does not need a number. Both roles allow 180 seconds to
+connect and require inbound encoded/decoded audio and video, observed bearer
+rate, outgoing media, and confirmed cleanup. Each report covers its own endpoint;
+review both reports for the full cross-platform result.
+
+Live timing begins after local capture has produced encoded media and requires
+the complete requested capture interval. A single station leaves five extra
+seconds before initiating hangup to accommodate small start-time differences.
+A remote hangup can pass only after the local requested duration has actually
+completed; early hangups fail. Grant permissions before retrying a run if a
+first-use prompt delayed one side beyond the other side's grace period.
+
 For file/camera, change `--mode file/camera`, omit `--bundle2`, and select the
 camera and microphone when prompted. Use headphones; camera/microphone access
 must be enabled for desktop applications in Windows privacy settings. Linux

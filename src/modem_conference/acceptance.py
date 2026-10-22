@@ -109,6 +109,35 @@ def capture_duration_accepted(summary, requested_seconds):
             and summary['outgoing_frames'][1] >= requested_seconds*1000/30*.90)
 
 
+def station_plan(args):
+    """Validate explicit local/paired ownership before opening any device."""
+    if args.mode == 'station':
+        if not args.port or args.role not in ('answer', 'dial'):
+            raise ValueError('Station mode requires --port and --role answer|dial.')
+        if args.role == 'dial' and not args.number:
+            raise ValueError('A dialing station requires --number.')
+        modes, ports, bundles = [args.source], [args.port], [args.bundle]
+    else:
+        if not args.caller_port or not args.answerer_port or not args.number:
+            raise ValueError('Paired hardware mode requires --caller-port, --answerer-port and --number.')
+        if args.caller_port == args.answerer_port:
+            raise ValueError('The stations need separate serial ports.')
+        modes, ports, bundles = args.mode.split('/'), [args.caller_port, args.answerer_port], [args.bundle1, args.bundle2]
+    if args.exercise_video_overload and 'camera' not in modes:
+        raise ValueError('--exercise-video-overload requires at least one camera source.')
+    for mode, bundle in zip(modes, bundles):
+        if mode == 'file' and not bundle:
+            raise ValueError('Provide a prepared bundle for every file source.')
+    return modes, ports, bundles
+
+
+def duration_outcome(elapsed, requested, remote_stopped, grace=0.):
+    """A remote hangup cannot turn a short run into a completed interval."""
+    if remote_stopped:
+        return 'complete' if elapsed is not None and elapsed >= requested else 'early_disconnect'
+    return 'complete' if elapsed is not None and elapsed >= requested+grace else 'continue'
+
+
 def rss_bytes(pids):
     """Sample parent and encoder RSS, with no optional Python dependency."""
     if sys.platform != 'win32':
@@ -245,29 +274,23 @@ def stress(args, app):
 
 
 def hardware(args, app):
-    if not args.caller_port or not args.answerer_port or not args.number:
-        raise ValueError('Hardware mode requires --caller-port, --answerer-port and --number.')
-    if args.caller_port == args.answerer_port:
-        raise ValueError('The stations need separate serial ports.')
-    modes = args.mode.split('/')
-    if args.exercise_video_overload and 'camera' not in modes:
-        raise ValueError('--exercise-video-overload requires at least one camera source.')
-    bundles = [args.bundle1, args.bundle2]
-    for mode, bundle in zip(modes, bundles):
-        if mode == 'file' and not bundle:
-            raise ValueError('Provide a prepared --bundle1/--bundle2 for every file source.')
+    modes, ports, bundles = station_plan(args)
+    single = args.mode == 'station'
+    labels = [str(index+1) for index in range(len(ports))]
     report = {'mode': args.mode, 'errors': [], 'stations': {}, 'seconds': args.seconds,
-              'received': {'1': {1: 0, 2: 0}, '2': {1: 0, 2: 0}},
-              'decoded': {'1': {'audio_bytes':0, 'video_frames':0}, '2': {'audio_bytes':0, 'video_frames':0}},
+              'role':args.role if single else 'paired',
+              'received': {label:{1:0,2:0} for label in labels},
+              'decoded': {label:{'audio_bytes':0, 'video_frames':0} for label in labels},
               'rates': {}, 'inband_rates': {}, 'carrier_reports': {}, 'bearers': {}, 'cleanup': {},
-              'capture': {}, 'forced_video_probes': {}, 'peak_combined_rss_bytes':0}
-    capture_metrics = {label:CaptureMetrics() for label in ('1','2')}
+              'capture': {}, 'forced_video_probes': {}, 'peak_combined_rss_bytes':0,
+              'media_started': {label:0 for label in labels}}
+    capture_metrics = {label:CaptureMetrics() for label in labels}
     rss_history = deque(maxlen=200)
     events = deque(maxlen=2000)
     root = args.output.parent / (args.output.stem+'-diagnostics')
     controllers = []
     windows = []
-    for index, port in enumerate((args.caller_port, args.answerer_port)):
+    for index, port in enumerate(ports):
         label = str(index+1)
         window = StationWindow(label, available_ports())
         window.set_initial_connection(port, args.number if index == 0 else '')
@@ -279,10 +302,14 @@ def hardware(args, app):
         else:
             window.source_combo.setCurrentIndex(1)
             for name in ('camera', 'microphone'):
-                value = getattr(args, f'{name}{index+1}')
+                value = getattr(args, name if single else f'{name}{index+1}')
                 if value:
                     controller.devices.values[name] = value
-        def event(value, label=label):
+            if single and any(device is None for device in controller.devices.selected()[:2]):
+                controller.devices.dialog()
+                if any(device is None for device in controller.devices.selected()[:2]):
+                    raise ValueError('Select an available camera and microphone before starting the station.')
+        def event(value, label=label, port=port):
             if value['event'] == 'media':
                 report['received'][label][int(value['lcn'])] += 1
             else:
@@ -300,6 +327,10 @@ def hardware(args, app):
                 report['cleanup'][label] = value
             elif value['event'] == 'video_overload':
                 capture_metrics[label].worker_video_overloads += 1
+            elif value['event'] == 'media_started':
+                report['media_started'][label] += 1
+            elif value['event'] == 'state' and value.get('state') == 'listening':
+                print(f'READY listening on {port}. The other station may dial now.', flush=True)
         controller.event_received.connect(event)
         def audio(data, label=label):
             report['decoded'][label]['audio_bytes'] += len(data)
@@ -311,6 +342,10 @@ def hardware(args, app):
         controller.capture.frame.connect(metrics.preview)
         controller.capture.status.connect(metrics.status)
         controller.capture.chunk.connect(lambda chunk, c=controller, m=metrics: m.outgoing(chunk, c.capture.started_at))
+        def capture_stopped(c=controller, m=metrics):
+            if m.started_at is not None and m.ended_at is None:
+                m.ended_at = time.monotonic()
+        controller.capture.stopped.connect(capture_stopped)
         controllers.append(controller); windows.append(window)
         window.show()
     started = time.monotonic()
@@ -324,7 +359,8 @@ def hardware(args, app):
         if not closing:
             closing = True
             for controller in controllers:
-                capture_metrics[controller.station].ended_at = time.monotonic()
+                if capture_metrics[controller.station].ended_at is None:
+                    capture_metrics[controller.station].ended_at = time.monotonic()
                 controller.shutdown()
     def tick():
         nonlocal armed_at, transmitting, completed_duration, last_rss
@@ -333,7 +369,7 @@ def hardware(args, app):
             if all(c._closed for c in controllers):
                 timer.stop(); app.quit()
             return
-        timed_out = ((armed_at is None and now-started > 100)
+        timed_out = ((armed_at is None and now-started > args.timeout)
                      or armed_at is not None and transmitting is None and now-armed_at > 120)
         if report['errors'] or timed_out:
             if not report['errors']:
@@ -367,10 +403,13 @@ def hardware(args, app):
                     probe['after'] = metrics.snapshot()
                     probe['audio_continued'] = probe['after']['audio_frames'] > probe['before']['audio_frames']
                     probe['video_recovered'] = probe['after']['video_pictures'] > probe['before']['video_pictures']
-        if transmitting is not None and now-transmitting >= args.seconds:
+        remote_stopped = armed_at is not None and any(c.state in ('idle','error','hanging_up','disconnecting') for c in controllers)
+        outcome = duration_outcome(now-transmitting if transmitting is not None else None,
+                                   args.seconds, remote_stopped, 5. if single else 0.)
+        if outcome == 'complete':
             completed_duration = True
             close()
-        elif armed_at is not None and any(c.state in ('idle','error') for c in controllers):
+        elif outcome == 'early_disconnect':
             report['errors'].append({'message':'Call disconnected before the requested duration'})
             close()
     previous_hook = sys.excepthook
@@ -379,18 +418,22 @@ def hardware(args, app):
         QTimer.singleShot(0, close)
     sys.excepthook = qt_exception
     timer = QTimer(); timer.timeout.connect(tick); timer.start(100)
-    controllers[1].begin('listen', args.answerer_port)
-    def dial_when_listening(value):
-        if value.get('event') == 'state' and value.get('state') == 'listening':
-            controllers[0].begin('dial', args.caller_port, args.number)
-    controllers[1].event_received.connect(dial_when_listening)
+    if single:
+        controllers[0].begin('dial' if args.role == 'dial' else 'listen', args.port,
+                             args.number if args.role == 'dial' else None)
+    else:
+        controllers[1].begin('listen', args.answerer_port)
+        def dial_when_listening(value):
+            if value.get('event') == 'state' and value.get('state') == 'listening':
+                controllers[0].begin('dial', args.caller_port, args.number)
+        controllers[1].event_received.connect(dial_when_listening)
     try:
         app.exec()
     finally:
         sys.excepthook = previous_hook
     for c in controllers:
         report['stations'][c.station] = {'closed':c._closed, 'state':c.state,
-                                         'capture_active':c.capture.active}
+                                         'capture_active':c.capture.active, 'shutdown_forced':c.shutdown_forced}
         report['capture'][c.station] = capture_metrics[c.station].summary()
     report['events'] = list(events)
     report['rss_samples'] = list(rss_history)
@@ -398,40 +441,64 @@ def hardware(args, app):
     report['source_armed_elapsed_seconds'] = armed_at-started if armed_at is not None else None
     report['transmission_clock_elapsed_seconds'] = transmitting-started if transmitting is not None else None
     report['passed'] = (completed_duration and not report['errors']
-                        and all(c._closed and not c.capture.active for c in controllers)
+                        and all(c._closed and not c.capture.active and not c.shutdown_forced for c in controllers)
                         and all(count > 0 for channels in report['received'].values() for count in channels.values())
                         and all(count > 0 for channels in report['decoded'].values() for count in channels.values())
-                        and all(report['rates'].get(label) == 14400 for label in ('1','2'))
-                        and all(report['bearers'].get(label) is not None for label in ('1','2'))
+                        and all(report['rates'].get(label) == 14400 for label in labels)
+                        and all(report['bearers'].get(label) is not None for label in labels)
+                        and all(report['media_started'][label] > 0
+                                and (report['cleanup'].get(label, {}).get('session') or {}).get('counts', {}).get('tx_media_bytes', 0) > 0
+                                for label in labels)
                         and all(capture_duration_accepted(report['capture'][str(index+1)], args.seconds)
                                 for index, mode in enumerate(modes) if mode == 'camera')
                         and (not args.exercise_video_overload or
                              all(report['forced_video_probes'].get(str(index+1), {}).get('audio_continued')
                                  and report['forced_video_probes'].get(str(index+1), {}).get('video_recovered')
                                  for index, mode in enumerate(modes) if mode == 'camera'))
-                        and all(report['cleanup'].get(label, {}).get('cleanup_ok') is True for label in ('1','2')))
+                        and all(report['cleanup'].get(label, {}).get('cleanup_ok') is True
+                                and report['cleanup'][label].get('error') is None for label in labels))
     report['elapsed_seconds'] = time.monotonic()-started
     return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=('file/file','file/camera','camera/camera','stress'), default='stress')
+    parser.add_argument('--mode', choices=('file/file','file/camera','camera/camera','station','stress'), default='stress')
     parser.add_argument('--seconds', type=float, default=600)
     parser.add_argument('--exercise-video-overload', action='store_true',
                         help='force one labeled camera-video pause after 10 seconds and require audio continuity/video recovery')
     parser.add_argument('--caller-port'); parser.add_argument('--answerer-port'); parser.add_argument('--number')
+    parser.add_argument('--role', choices=('answer','dial'))
+    parser.add_argument('--port', help='the one local serial port in station mode')
+    parser.add_argument('--source', choices=('file','camera'), default='camera')
+    parser.add_argument('--bundle', type=Path)
+    parser.add_argument('--camera', help='explicit Qt camera ID hex; otherwise choose in Devices dialog')
+    parser.add_argument('--microphone', help='explicit Qt microphone ID hex; otherwise choose in Devices dialog')
+    parser.add_argument('--timeout', type=float, default=180, help='seconds allowed to connect (default 180)')
+    parser.add_argument('--list-devices', action='store_true', help='list serial ports and camera/audio IDs without opening devices')
     parser.add_argument('--bundle1', type=Path); parser.add_argument('--bundle2', type=Path)
     for index in (1, 2):
         parser.add_argument(f'--camera{index}', help='explicit camera ID hex from Qt device enumeration')
         parser.add_argument(f'--microphone{index}', help='explicit microphone ID hex')
-    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--output', type=Path)
     args = parser.parse_args()
+    if not args.list_devices and args.output is None:
+        parser.error('--output is required unless --list-devices is supplied.')
     if args.seconds <= 5:
         parser.error('--seconds must exceed 5 to exercise recovery')
+    if args.timeout <= 0:
+        parser.error('--timeout must be positive.')
     if args.exercise_video_overload and args.seconds < 20:
         parser.error('--exercise-video-overload requires at least 20 seconds.')
     app = QApplication([]); app.setQuitOnLastWindowClosed(False); apply_theme(app)
+    if args.list_devices:
+        from PySide6.QtMultimedia import QMediaDevices
+        from .devices import device_id
+        print(json.dumps({'serial_ports':available_ports(),
+            'cameras':[{'id':device_id(device),'name':device.description()} for device in QMediaDevices.videoInputs()],
+            'microphones':[{'id':device_id(device),'name':device.description()} for device in QMediaDevices.audioInputs()],
+            'speakers':[{'id':device_id(device),'name':device.description()} for device in QMediaDevices.audioOutputs()]}, indent=2))
+        return 0
     try:
         report = stress(args, app) if args.mode == 'stress' else hardware(args, app)
     except ValueError as exc:
