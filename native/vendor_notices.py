@@ -1,7 +1,7 @@
 """Refresh upstream license texts for the fixed Qt 6.12 native runtime.
 
 This maintainer command downloads license/attribution files only, never runtime
-code. Its manifest records immutable upstream commits, URLs and SHA-256 values.
+code. Its manifest records immutable upstream Git trees, URLs and SHA-256 values.
 """
 from __future__ import annotations
 
@@ -33,13 +33,13 @@ def save(item: tuple[str, str]) -> dict:
 
 def main() -> int:
     downloads = []
-    commits = {}
+    trees = {}
     for repo in REPOSITORIES:
         tree = json.loads(fetch(f"https://api.github.com/repos/qt/{repo}/git/trees/{REF}?recursive=1"))
         if tree.get("truncated"):
             raise RuntimeError(f"Incomplete upstream tree: {repo}")
-        commit = tree["sha"]
-        commits[repo] = commit
+        tree_sha = tree["sha"]
+        trees[repo] = tree_sha
         paths = []
         for item in tree["tree"]:
             path = PurePosixPath(item["path"])
@@ -52,12 +52,12 @@ def main() -> int:
                 )
             ):
                 paths.append(str(path))
-        downloads += [(f"qt/{repo}/{path}", f"https://raw.githubusercontent.com/qt/{repo}/{commit}/{path}") for path in paths]
+        downloads += [(f"qt/{repo}/{path}", f"https://raw.githubusercontent.com/qt/{repo}/{tree_sha}/{path}") for path in paths]
     downloads += [(f"ffmpeg/{name}", f"https://raw.githubusercontent.com/FFmpeg/FFmpeg/n9.0.1/{name}")
                   for name in ("COPYING.LGPLv2.1", "COPYING.LGPLv3", "COPYING.GPLv2", "COPYING.GPLv3", "LICENSE.md")]
     with ThreadPoolExecutor(max_workers=8) as pool:
         entries = list(pool.map(save, downloads))
-    manifest = {"qt_version": "6.12.0", "ffmpeg_version": "9.0.1", "qt_commits": commits,
+    manifest = {"qt_version": "6.12.0", "ffmpeg_version": "9.0.1", "qt_trees": trees,
                 "note": "Superset of upstream runtime notices; inclusion does not imply every optional component is linked.",
                 "files": sorted(entries, key=lambda item: item["path"])}
     DESTINATION.mkdir(parents=True, exist_ok=True)

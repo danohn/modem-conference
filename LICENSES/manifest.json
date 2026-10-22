@@ -1,7 +1,7 @@
 {
   "qt_version": "6.12.0",
   "ffmpeg_version": "9.0.1",
-  "qt_commits": {
+  "qt_trees": {
     "qtbase": "025bdad181de241e81bf853c8a2d7bf3d19261a9",
     "qtmultimedia": "6ca885f084a3984749d53bb50a0e08bdc60e86cc",
     "qtsvg": "883a58532078d003cefef0a549bfe9f885ce41f5"
