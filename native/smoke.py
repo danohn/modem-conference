@@ -40,6 +40,8 @@ def main() -> int:
         environment["QT_QPA_PLATFORM"] = "offscreen"
         environment["MODEM_CONFERENCE_SMOKE_TEST"] = "1"
         environment["MODEM_CONFERENCE_CONFIG_DIR"] = str(Path(directory) / "settings")
+        environment["MODEM_CONFERENCE_CACHE_DIR"] = str(Path(directory) / "cache")
+        environment["MODEM_CONFERENCE_LOG_DIR"] = str(Path(directory) / "logs")
         for argv in ([str(helper), "--self-test"], [str(helper), "worker", "--self-test"],
                      [str(main_exe), "--smoke-test"]):
             result = subprocess.run(argv, cwd=directory, env=environment, timeout=45,
