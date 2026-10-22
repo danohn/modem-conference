@@ -183,6 +183,11 @@ def main() -> int:
         notices = staged / "notices"
     helper_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(helper_candidates[0], helper_target, symlinks=True)
+    # Installer-local wheel URLs have no runtime purpose and can expose the
+    # build checkout. Keep version/license metadata and our public provenance.
+    for installer_record in staged.rglob("direct_url.json"):
+        if any(part.endswith(".dist-info") for part in installer_record.parts):
+            installer_record.unlink()
     copy_notices(notices)
     manifest = {"version": version, "python": platform.python_version(),
                 "platform": sys.platform, "machine": platform.machine(),
