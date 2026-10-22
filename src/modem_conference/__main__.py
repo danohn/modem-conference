@@ -17,6 +17,17 @@ from .theme import apply_theme
 from .window import StationWindow
 
 
+def station_label(used, requested=None):
+    """Allocate a unique label so windows never share settings or logs."""
+    used = set(map(str, used))
+    if requested is not None and str(requested) not in used:
+        return str(requested)
+    candidate = 1
+    while str(candidate) in used:
+        candidate += 1
+    return str(candidate)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pair', action='store_true', help='open two independent station windows')
@@ -55,7 +66,7 @@ def main(argv=None):
     live = set()
 
     def add_station(station=None, port=None, number=None):
-        station = station or str(len(windows)+1)
+        station = station_label((window.station for window in windows), station)
         window = StationWindow(station, available_ports())
         controller = StationController(window, station, directory, app)
         controller.raw_capture = args.capture
@@ -76,7 +87,7 @@ def main(argv=None):
 
     add_station(args.station, args.port, args.number)
     if args.pair:
-        add_station('2', args.second_port)
+        add_station(None, args.second_port)
     timer = QTimer(app)
     timer.timeout.connect(lambda: None); timer.start(250)
     def stop(*_):
