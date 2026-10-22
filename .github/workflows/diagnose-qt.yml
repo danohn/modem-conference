@@ -1,0 +1,53 @@
+name: Diagnose Qt interpreter shutdown
+on:
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: h324 branch, tag or full commit ID
+        default: main
+        type: string
+      client_ref:
+        description: Client branch, tag or full commit ID to diagnose
+        default: main
+        type: string
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONFAULTHANDLER: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.client_ref }}
+          path: _client
+      - uses: actions/checkout@v4
+        with:
+          repository: danohn/h324
+          ref: ${{ inputs.core_ref }}
+          path: _core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install the same Qt runtime and wheels outside the checkouts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libpulse0
+          uv build --project _core --out-dir "$RUNNER_TEMP/core-dist"
+          uv build --project _client --out-dir "$RUNNER_TEMP/client-dist"
+          uv venv "$RUNNER_TEMP/qt diagnostic venv" --python 3.11
+          uv pip install --python "$RUNNER_TEMP/qt diagnostic venv" "$RUNNER_TEMP"/core-dist/*.whl "$RUNNER_TEMP"/client-dist/*.whl pytest pytest-qt
+      - name: Preserve finalization results for minimal, isolated and combined cases
+        working-directory: ${{ runner.temp }}
+        run: uv run --no-project --python "$RUNNER_TEMP/qt diagnostic venv" python "$GITHUB_WORKSPACE/scripts/diagnose_qt_shutdown.py" --tests "$GITHUB_WORKSPACE/_client/tests" --output "$RUNNER_TEMP/qt-shutdown.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qt-shutdown-python311
+          path: ${{ runner.temp }}/qt-shutdown.json
+          if-no-files-found: warn
