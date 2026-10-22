@@ -87,6 +87,39 @@ def archive_tree(staged: Path, output: Path, stem: str) -> Path:
     return archive
 
 
+def make_icon(work: Path) -> Path:
+    """Render our own period-style artwork; do not ship Qt's template logo."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QImage, QPainter
+    from PySide6.QtSvg import QSvgRenderer
+    renderer = QSvgRenderer(str(ROOT / "native" / "icon.svg"))
+    if not renderer.isValid():
+        raise RuntimeError("Invalid application icon")
+    def render(size: int, destination: Path) -> None:
+        image = QImage(size, size, QImage.Format.Format_ARGB32)
+        image.fill(0)
+        painter = QPainter(image)
+        renderer.render(painter, QRectF(0, 0, size, size))
+        painter.end()
+        if not image.save(str(destination)):
+            raise RuntimeError(f"Cannot write icon: {destination.name}")
+    if sys.platform == "darwin":
+        iconset = work / "ModemConference.iconset"
+        iconset.mkdir(exist_ok=True)
+        for size in (16, 32, 128, 256, 512):
+            render(size, iconset / f"icon_{size}x{size}.png")
+            render(size * 2, iconset / f"icon_{size}x{size}@2x.png")
+        icon = work / "ModemConference.icns"
+        run(["iconutil", "-c", "icns", "-o", str(icon), str(iconset)])
+    elif sys.platform == "win32":
+        icon = work / "ModemConference.ico"
+        render(64, icon)
+    else:
+        icon = work / "ModemConference.png"
+        render(256, icon)
+    return icon
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Generate/inspect GUI deployment command only")
@@ -115,7 +148,7 @@ def main() -> int:
     spec.read(spec_path)
     spec["app"].update(title="ModemConference", project_dir=str(gui),
                        input_file=str(launcher), exec_directory=str(work / "gui-output"))
-    spec["app"]["icon"] = str(Path(PySide6.__file__).parent / "scripts" / "deploy_lib" / "pyside_icon.icns") if sys.platform == "darwin" else spec["app"].get("icon", "")
+    spec["app"]["icon"] = str(make_icon(work))
     spec["python"]["packages"] = "Nuitka==4.3.1,ordered-set==4.1.0,zstandard==0.25.0"
     if sys.platform == "linux":
         spec["python"]["packages"] += ",patchelf==0.19.1.0"

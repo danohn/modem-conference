@@ -4,6 +4,9 @@ The preview uses the separately released `h324` package. Publish and verify the
 core library first. Development CI may build an explicitly selected core Git ref;
 release CI and native release downloads resolve the pinned dependency from PyPI.
 
+Current platform and physical-device evidence is tracked in
+[validation.md](validation.md).
+
 ## Publishing setup
 
 Configure protected GitHub environments `testpypi`, `pypi` and `release`, requiring
