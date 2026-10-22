@@ -82,15 +82,18 @@ class Capture(QObject):
         self._generation += 1
         self.active, self.sending = True, transmit
         self.started_at = time.monotonic()
+        generation = self._generation
         self.last_frame = 0
         self.audio_index = 0
         self.budget = VideoBudget()
         self.session = QMediaCaptureSession(self)
         self.camera = QCamera(camera_device, self)
-        self.camera.errorOccurred.connect(lambda _code, message: self._fail(message))
+        camera = self.camera
+        self.camera.errorOccurred.connect(lambda _code, message:
+            self._fail(message) if generation == self._generation and self.active and self.camera is camera else None)
         self.session.setCamera(self.camera)
         sink = QVideoSink(self.session)
-        sink.videoFrameChanged.connect(self._frame)
+        sink.videoFrameChanged.connect(lambda frame: self._frame(frame, generation))
         self.session.setVideoSink(sink)
         if transmit:
             self._video_encoder()
@@ -113,7 +116,8 @@ class Capture(QObject):
             if self.audio_io is None:
                 self._fail("Cannot start the selected microphone")
                 return
-            self.audio_io.readyRead.connect(self._audio_ready)
+            audio_io = self.audio_io
+            self.audio_io.readyRead.connect(lambda: self._audio_ready(generation, audio_io))
         self.camera.start()
 
     def _encoder(self, channel, args):
@@ -138,8 +142,8 @@ class Capture(QObject):
                           "-qmin", "12", "-qmax", "31", "-g", "12", "-threads", "1",
                           "-f", "h263", "-flush_packets", "1", "pipe:1"])
 
-    def _frame(self, frame):
-        if not self.active or not frame.isValid():
+    def _frame(self, frame, generation=None):
+        if not self.active or generation is not None and generation != self._generation or not frame.isValid():
             return
         image = frame.toImage()
         if image.isNull():
@@ -162,7 +166,11 @@ class Capture(QObject):
         process.write(raw[:128*96*3])
         self.last_frame = now
 
-    def _audio_ready(self):
+    def _audio_ready(self, generation=None, audio_io=None):
+        if (not self.active or self.audio_io is None
+                or generation is not None and generation != self._generation
+                or audio_io is not None and audio_io is not self.audio_io):
+            return
         data = bytes(self.audio_io.readAll())
         process = self.encoders.get(1)
         if not process or self.paused:
@@ -203,6 +211,9 @@ class Capture(QObject):
         # PySide6 6.12 cannot marshal QAudio::State into a dynamic Python slot
         # on all backends. A registered zero-argument slot avoids converting
         # that alias; query the owning source for state/error instead.
+        sender = self.sender()
+        if sender is not None and sender is not self.audio:
+            return
         if self.audio:
             self.audio_state.emit(self.audio.state().name)
         if self.active and self.audio and self.audio.error().value:

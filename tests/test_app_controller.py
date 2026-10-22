@@ -100,3 +100,30 @@ def test_worker_crash_releases_capture_and_unlocks_source(app, tmp_path):
     assert window.source_combo.isEnabled()
     assert controller.state == 'error'
     controller.shutdown()
+
+
+def test_hangup_and_remote_teardown_release_capture_before_modem_cleanup(app, tmp_path):
+    window = StationWindow('1')
+    controller = StationController(window, '1', tmp_path)
+    commands = []
+    controller.command = commands.append
+    controller.capture.active = controller.capture.sending = True
+    controller.hangup()
+    assert not controller.capture.active
+    assert commands == [{'op':'hangup'}]
+    controller.capture.active = controller.capture.sending = True
+    controller.handle_event({'event':'state','state':'hanging_up'})
+    assert not controller.capture.active
+    assert controller.state == 'hanging_up'
+    controller.shutdown()
+
+
+def test_stop_pending_preview_keeps_idle_modem_worker_unstarted(app, tmp_path):
+    window = StationWindow('1')
+    controller = StationController(window, '1', tmp_path)
+    window.set_capture_pending(True)
+    assert window.stop_button.isEnabled()
+    controller.stop_media()
+    assert not window._capture_pending
+    assert controller.process.state() == QProcess.ProcessState.NotRunning
+    controller.shutdown()

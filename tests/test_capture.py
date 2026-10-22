@@ -45,6 +45,62 @@ def test_audio_state_slot_avoids_qt_alias_conversion_and_queries_source():
     capture.audio = None
 
 
+def test_late_camera_and_microphone_callbacks_cannot_enter_restarted_capture():
+    capture = Capture()
+    old_generation = capture._generation
+    capture.stop()
+    capture.active = True
+    class Unexpected:
+        def isValid(self):
+            pytest.fail('Stale camera frame inspected after restart')
+        def readAll(self):
+            pytest.fail('Stale microphone read after restart')
+    capture.audio_io = Unexpected()
+    capture._frame(Unexpected(), old_generation)
+    capture._audio_ready(old_generation, capture.audio_io)
+    capture._audio_ready(capture._generation, Unexpected())
+    capture.stop()
+    capture._audio_ready()  # Queued callback after audio_io was released.
+
+
+def test_retired_camera_error_and_frame_signals_do_not_affect_new_preview(monkeypatch):
+    import modem_conference.capture as module
+    class Signal:
+        def __init__(self): self.callbacks = []
+        def connect(self, callback): self.callbacks.append(callback)
+        def emit(self, *args):
+            for callback in self.callbacks: callback(*args)
+    class Camera:
+        def __init__(self, *args): self.errorOccurred = Signal()
+        def start(self): pass
+        def stop(self): pass
+        def deleteLater(self): pass
+    class Session:
+        def __init__(self, *args): self.sink = None
+        def setCamera(self, camera): pass
+        def setVideoSink(self, sink): self.sink = sink
+        def deleteLater(self): pass
+    class Sink:
+        def __init__(self, *args): self.videoFrameChanged = Signal()
+    monkeypatch.setattr(module, 'QCamera', Camera)
+    monkeypatch.setattr(module, 'QMediaCaptureSession', Session)
+    monkeypatch.setattr(module, 'QVideoSink', Sink)
+    capture = Capture()
+    errors = []
+    capture.error.connect(errors.append)
+    capture.start(object(), None, transmit=False)
+    retired_camera, retired_sink = capture.camera, capture.session.sink
+    capture.stop()
+    capture.start(object(), None, transmit=False)
+    retired_camera.errorOccurred.emit(None, 'retired camera error')
+    retired_sink.videoFrameChanged.emit(object())
+    assert capture.active
+    assert not errors
+    capture.camera.errorOccurred.emit(None, 'current camera error')
+    assert errors == ['current camera error']
+    assert not capture.active
+
+
 @pytest.mark.skipif(not shutil.which('ffmpeg'), reason='FFmpeg required')
 def test_actual_incremental_camera_encoders_and_video_restart_keep_audio_alive():
     app = QApplication.instance() or QApplication([])

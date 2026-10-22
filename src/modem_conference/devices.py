@@ -21,6 +21,9 @@ class DeviceSelection:
         stored = load_settings()
         self.values = {key: stored.get(f'{key}_{owner.station}', '')
                        for key in ('camera', 'microphone', 'speakers')}
+        self._capture_generation = 0
+        self._capture_pending = False
+        owner.capture.stopped.connect(self.cancel_capture_request)
         self.media.videoInputsChanged.connect(self.changed)
         self.media.audioInputsChanged.connect(self.changed)
         self.media.audioOutputsChanged.connect(self.changed)
@@ -34,6 +37,7 @@ class DeviceSelection:
         return result
 
     def changed(self):
+        self.cancel_capture_request()
         camera, mic, speakers = self.selected()
         if self.owner.capture.active and (camera is None or self.owner.capture.sending and mic is None):
             self.owner.capture_error("Selected capture device was removed; transmission stopped. Select a device again.")
@@ -46,6 +50,7 @@ class DeviceSelection:
         if self.owner.capture.sending:
             self.owner.window.show_error('Stop transmission before changing capture devices.')
             return
+        self.cancel_capture_request()
         dialog = QDialog(self.owner.window)
         dialog.setWindowTitle("Camera, microphone and speakers")
         form = QFormLayout(dialog)
@@ -75,6 +80,9 @@ class DeviceSelection:
         save_settings(stored)
 
     def capture(self, transmit):
+        if getattr(self, '_capture_pending', False):
+            self.cancel_capture_request()
+            return
         import sys
         if sys.platform == 'darwin':
             from .macos_launcher import has_usage_descriptions
@@ -91,11 +99,33 @@ class DeviceSelection:
         if camera is None or transmit and microphone is None:
             self.owner.window.show_error("Select an available camera and microphone in Devices first.")
             return
+        self._capture_generation = getattr(self, '_capture_generation', 0)+1
+        generation = self._capture_generation
+        self._capture_pending = True
+        self._pending_ui(True)
+        requested_state = getattr(self.owner, 'state', None)
+        def identity(device):
+            return device_id(device) if hasattr(device, 'id') else id(device)
+        requested_devices = (identity(camera), identity(microphone) if transmit else None)
+        def current():
+            if (not self._capture_pending or self._capture_generation != generation
+                    or getattr(self.owner, 'closing', False)
+                    or getattr(self.owner, 'state', None) != requested_state):
+                return False
+            source = getattr(self.owner.window, 'source_combo', None)
+            if source is not None and source.currentData() != 'camera':
+                return False
+            selected_camera, selected_microphone, _ = self.selected()
+            return (selected_camera is not None and (not transmit or selected_microphone is not None)
+                    and (identity(selected_camera), identity(selected_microphone) if transmit else None) == requested_devices)
         permissions = [QCameraPermission()]
         if transmit:
             permissions.append(QMicrophonePermission())
         def granted(index=0):
+            if not current():
+                return
             if index == len(permissions):
+                self.cancel_capture_request()
                 self.owner.start_capture(camera, microphone, transmit)
                 return
             app = QCoreApplication.instance()
@@ -104,15 +134,29 @@ class DeviceSelection:
             if state == Qt.PermissionStatus.Granted:
                 granted(index+1)
             elif state == Qt.PermissionStatus.Denied:
+                self.cancel_capture_request()
                 self.owner.window.show_error("Capture permission denied. Enable camera/microphone access in system settings.")
             else:
                 def answered(result):
+                    if not current():
+                        return
                     if result.status() == Qt.PermissionStatus.Granted:
                         granted(index+1)
                     else:
+                        self.cancel_capture_request()
                         self.owner.window.show_error("Capture permission was not granted.")
                 app.requestPermission(permission, self.owner, answered)
         granted()
+
+    def _pending_ui(self, pending):
+        method = getattr(self.owner.window, 'set_capture_pending', None)
+        if method:
+            method(pending)
+
+    def cancel_capture_request(self):
+        self._capture_generation = getattr(self, '_capture_generation', 0)+1
+        self._capture_pending = False
+        self._pending_ui(False)
 
 
 def dependencies_dialog(window):

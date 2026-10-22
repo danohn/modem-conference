@@ -129,6 +129,7 @@ class StationWindow(QMainWindow):
         self.peer = ''
         self._state = 'idle'
         self._preparing = False
+        self._capture_pending = False
         self._dependencies_ready = True
         self._movie = None
         self._telemetry = {}
@@ -436,12 +437,12 @@ class StationWindow(QMainWindow):
         for control in (self.browse_button, self.open_button, self.open_action):
             control.setEnabled(may_browse)
         self.transmit_button.setEnabled(self._state == 'connected' and (bool(self._movie) or self.source_combo.currentData() == 'camera')
-                                        and self._dependencies_ready and not self._preparing and not self._transmitting)
+                                        and self._dependencies_ready and not self._preparing and not self._transmitting and not self._capture_pending)
         self.source_combo.setEnabled(not self._transmitting)
         self.devices_button.setEnabled(not self._transmitting)
         self.preview_button.setEnabled(self.source_combo.currentData() == 'camera' and not self._transmitting)
         self.pause_button.setEnabled(self._state == 'connected' and self._transmitting)
-        self.stop_button.setEnabled(self._state == 'connected' and self._transmitting)
+        self.stop_button.setEnabled(self._capture_pending or self._state == 'connected' and self._transmitting)
         self.pause_button.setText('&Resume' if self._paused else '&Pause')
         if self._movie or self.source_combo.currentData() == 'camera':
             self.outgoing_label.setText('Paused' if self._paused else
@@ -621,4 +622,8 @@ class StationWindow(QMainWindow):
             self.local_video.set_frame(QImage())
         else:
             self.set_movie(self._movie)
+        self._sync_controls()
+
+    def set_capture_pending(self, pending):
+        self._capture_pending = bool(pending)
         self._sync_controls()

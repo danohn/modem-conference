@@ -77,7 +77,7 @@ class StationController(QObject):
         self.preview_sink.videoFrameChanged.connect(self._preview_frame)
         window.dial_requested.connect(lambda port, number: self.begin('dial', port, number))
         window.listen_requested.connect(lambda port: self.begin('listen', port))
-        window.hangup_requested.connect(lambda: self.command({'op': 'hangup'}))
+        window.hangup_requested.connect(self.hangup)
         window.file_requested.connect(self.choose_file)
         window.send_requested.connect(self.send_movie)
         window.pause_requested.connect(self.pause)
@@ -178,11 +178,13 @@ class StationController(QObject):
         if kind != 'media':
             self.log('worker_event', data=value)
         if kind == 'state':
+            if value['state'] != self.state:
+                self.devices.cancel_capture_request()
             self.state = value['state']
             self.window.set_state(self.state, value.get('message', ''))
             if self.state == 'connected':
                 self.playback.start()
-            elif self.state in ('idle', 'error'):
+            elif self.state in ('idle', 'error', 'hanging_up', 'disconnecting'):
                 self.preview.stop()
                 self.capture.stop()
                 self.playback.stop()
@@ -319,8 +321,13 @@ class StationController(QObject):
 
     def stop_media(self):
         self.capture.stop()
-        self.command({'op': 'stop_media'})
+        if self.state == 'connected':
+            self.command({'op': 'stop_media'})
         self.preview.stop()
+
+    def hangup(self):
+        self.capture.stop()
+        self.command({'op':'hangup'})
 
     def set_muted(self, muted):
         self.playback.selected_output = self.devices.selected()[2]
