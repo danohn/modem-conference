@@ -11,9 +11,13 @@ from serial.tools import list_ports
 
 
 def directories():
-    return {"config": user_config_path("modem-conference", appauthor=False),
-            "cache": user_cache_path("modem-conference", appauthor=False),
-            "logs": user_log_path("modem-conference", appauthor=False)}
+    defaults = {"config": user_config_path("modem-conference", appauthor=False),
+                "cache": user_cache_path("modem-conference", appauthor=False),
+                "logs": user_log_path("modem-conference", appauthor=False)}
+    variables = {"config": "MODEM_CONFERENCE_CONFIG_DIR", "cache": "MODEM_CONFERENCE_CACHE_DIR",
+                 "logs": "MODEM_CONFERENCE_LOG_DIR"}
+    return {key: Path(os.environ[variables[key]]).expanduser() if os.environ.get(variables[key]) else value
+            for key, value in defaults.items()}
 
 
 def load_settings(path: Path | None = None) -> dict:

@@ -1,4 +1,6 @@
 import plistlib
+import subprocess
+import sys
 import pytest
 
 from modem_conference.macos_launcher import create
@@ -37,3 +39,38 @@ def test_mac_source_cli_reexecutes_bundle_before_creating_qapplication(monkeypat
         entry.main(arguments)
     target = str(tmp_path/'App With Spaces.app/Contents/MacOS/modem-conference')
     assert calls == [(target, [target, *arguments])]
+
+
+@pytest.mark.skipif(sys.platform != 'darwin', reason='Actual macOS app-bundle discovery')
+def test_generated_mac_bundle_imports_and_does_not_relaunch_recursively(tmp_path):
+    app = create(tmp_path/'App With Spaces.app')
+    script = '''
+from modem_conference import __main__ as entry, macos_launcher
+assert macos_launcher.has_usage_descriptions()
+def must_not_create():
+    raise AssertionError('Already bundled process tried to create another app')
+macos_launcher.create = must_not_create
+class ReachedApplication(Exception):
+    pass
+class Application:
+    @staticmethod
+    def instance():
+        raise ReachedApplication()
+entry.QApplication = Application
+try:
+    entry.main([])
+except ReachedApplication:
+    pass
+else:
+    raise AssertionError('Did not reach application startup')
+from modem_conference.helper import command
+import subprocess
+program, arguments = command('worker', ['--self-test'])
+child = subprocess.run([program, *arguments], capture_output=True, text=True, timeout=20, check=True)
+assert '"ready": true' in child.stdout
+print('bundle, environment, and helper verified')
+'''
+    child = subprocess.run([str(app/'Contents/MacOS/modem-conference'), '--python', '-c', script],
+                           capture_output=True, text=True, timeout=30)
+    assert child.returncode == 0, child.stderr
+    assert 'bundle, environment, and helper verified' in child.stdout

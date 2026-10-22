@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import sys
 
-from modem_conference.settings import device_identity, restore_port, save_settings, load_settings
+from modem_conference.settings import device_identity, restore_port, save_settings, load_settings, directories
 from modem_conference import helper
 
 
@@ -42,3 +42,12 @@ def test_frozen_acceptance_helper_reuses_own_executable(monkeypatch, tmp_path):
     program, arguments = helper.command('worker', ['--station','1'])
     assert program == executable
     assert arguments == ['worker','--station','1']
+
+
+def test_explicit_user_directories_isolate_config_cache_and_logs(monkeypatch, tmp_path):
+    for kind in ('CONFIG', 'CACHE', 'LOG'):
+        monkeypatch.setenv(f'MODEM_CONFERENCE_{kind}_DIR', str(tmp_path/kind.lower()))
+    assert directories() == {'config': tmp_path/'config', 'cache':tmp_path/'cache', 'logs':tmp_path/'log'}
+    save_settings({'number_1':'*123#'})
+    assert load_settings() == {'number_1':'*123#'}
+    assert (tmp_path/'config/settings.toml').exists()
