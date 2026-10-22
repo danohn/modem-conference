@@ -19,6 +19,40 @@ Each computer runs **one local station**. It owns only the explicitly supplied
 port and exchanges media with the remote endpoint over the telephone connection.
 No shared filesystem or network control connection is required.
 
+### Using the desktop interface
+
+No terminal is required for a manual call:
+
+1. Extract the entire native archive and open the application. Keep the helper
+   directory and shared libraries together. Close any older copy of the app.
+2. Open **Options → Dependencies…**, select the external FFmpeg and ffprobe
+   executables, and use **Save and check**. The result must say **Ready**.
+3. Select the local modem port. On the answering computer, leave **Call to**
+   blank. Select **Camera + microphone**, then **Devices…** and explicitly
+   choose the camera, microphone and headphones output. **Preview** can check
+   the camera before calling; stop the preview when finished.
+4. Click **Answer** on the receiving computer and wait for **Waiting for an
+   incoming call…**. On the other computer, enter its peer's telephone number
+   and click **Call**.
+5. Once both stations show **Connected**, click **Transmit** at each station.
+   Use headphones and clear **Mute audio** to listen. Check incoming picture
+   and sound in both directions, then exercise pause/resume and repeated sends.
+6. Hang up at either station. Both should return to **Idle**, release capture
+   devices and restore the modem without an error. Repeat with the other
+   station initiating hangup. A ten-minute live test starts after both stations
+   are transmitting; a short disconnect regression does not replace it.
+
+If an error appears, record its exact text before closing it. On Windows, paste
+`%LOCALAPPDATA%\modem-conference\Logs` into Explorer and find the newest
+`app-…Z/station-1/controller.jsonl`. A custom log directory overrides that path.
+Close the application after checking Idle to include worker shutdown evidence.
+For encoder or video problems, also save the text from **View → Connection
+log** before closing: capture/FFmpeg status messages shown there are not all
+persisted in the controller file. Review logs for personal information before
+sharing them. Raw media recording is opt-in and is unnecessary for this check.
+
+### Using the acceptance helper
+
 On Windows, list ports and device IDs without opening a modem or capture device:
 
 ```powershell
