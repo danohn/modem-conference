@@ -71,9 +71,10 @@ jobs:
         run: |
           uv venv "$RUNNER_TEMP/test venv" --python '${{ matrix.python }}'
           if [ '${{ inputs.released_core }}' != 'true' ]; then
-            uv pip install --python "$RUNNER_TEMP/test venv" "$RUNNER_TEMP"/core-dist/*.whl
+            uv pip install --python "$RUNNER_TEMP/test venv" "$RUNNER_TEMP"/core-dist/*.whl dist/*.whl pytest pytest-asyncio pytest-qt twine
+          else
+            uv pip install --python "$RUNNER_TEMP/test venv" dist/*.whl pytest pytest-asyncio pytest-qt twine
           fi
-          uv pip install --python "$RUNNER_TEMP/test venv" dist/*.whl pytest pytest-asyncio pytest-qt twine
           H324_TEST_PYTHON=$(uv python find "$RUNNER_TEMP/test venv")
           echo "H324_TEST_PYTHON=$H324_TEST_PYTHON" >> "$GITHUB_ENV"
       - name: Test installed wheel outside checkout

@@ -61,10 +61,13 @@ jobs:
           H324_BUILD_REF=$(git -C _core rev-parse HEAD)
           echo "H324_BUILD_REF=$H324_BUILD_REF" >> "$GITHUB_ENV"
           uv build --project _core --out-dir "$RUNNER_TEMP/core-dist"
-          uv pip install --python .venv "$RUNNER_TEMP"/core-dist/*.whl
       - name: Install client wheel and pinned build tools
         run: |
-          uv pip install --python .venv dist/*.whl -r native/requirements-build.txt
+          if [ -n '${{ inputs.core_ref }}' ]; then
+            uv pip install --python .venv "$RUNNER_TEMP"/core-dist/*.whl dist/*.whl -r native/requirements-build.txt
+          else
+            uv pip install --python .venv dist/*.whl -r native/requirements-build.txt
+          fi
           NATIVE_PYTHON=$(uv python find "$GITHUB_WORKSPACE/.venv")
           echo "NATIVE_PYTHON=$NATIVE_PYTHON" >> "$GITHUB_ENV"
       - name: Build, relocate, smoke-test and archive
