@@ -1,0 +1,1 @@
+Synthetic six-second fixture: generated test tones and a moving square, encoded as G.723.1 and H.263. No captured call, camera footage, or personal audio. Codec bytes are original project test data under MIT.

@@ -1,0 +1,86 @@
+name: Tests and distributions
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: h324 source ref to test before a PyPI release
+        default: main
+        type: string
+  workflow_call:
+    inputs:
+      core_ref:
+        default: main
+        type: string
+      released_core:
+        description: Resolve the declared h324 dependency from PyPI instead of source
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+        python: ['3.11', '3.12', '3.13', '3.14']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
+      - name: Audit public source and build both distributions
+        run: |
+          uv run --no-project scripts/audit_release.py --source .
+          uv build --out-dir dist
+          uv run --no-project scripts/audit_release.py dist/*
+      - uses: actions/checkout@v4
+        if: inputs.released_core != true
+        with:
+          repository: danohn/h324
+          ref: ${{ inputs.core_ref || 'main' }}
+          path: _core
+      - name: Build explicit development core dependency
+        if: inputs.released_core != true
+        run: |
+          git -C _core rev-parse HEAD
+          uv build --project _core --out-dir "$RUNNER_TEMP/core-dist"
+      - name: Linux multimedia dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libpulse0
+      - name: macOS external FFmpeg
+        if: runner.os == 'macOS'
+        run: brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+      - name: Windows external FFmpeg
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - name: Install wheels and test dependencies
+        run: |
+          uv venv .venv --python '${{ matrix.python }}'
+          if [ '${{ inputs.released_core }}' != 'true' ]; then
+            uv pip install --python .venv "$RUNNER_TEMP"/core-dist/*.whl
+          fi
+          uv pip install --python .venv dist/*.whl pytest pytest-asyncio pytest-qt twine
+          echo "H324_TEST_PYTHON=$(uv python find --python .venv)" >> "$GITHUB_ENV"
+      - name: Test installed wheel outside checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          uv run --no-project --python "$H324_TEST_PYTHON" python "$GITHUB_WORKSPACE/scripts/installed_check.py" --client --checkout "$GITHUB_WORKSPACE"
+          uv run --no-project --python "$H324_TEST_PYTHON" python -m pytest "$GITHUB_WORKSPACE/tests" --import-mode=importlib -q -W ignore::DeprecationWarning
+          uv run --no-project --python "$H324_TEST_PYTHON" python -m twine check "$GITHUB_WORKSPACE"/dist/*
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-24.04' && matrix.python == '3.14'
+        with:
+          name: python-distributions
+          path: dist/*
+          if-no-files-found: error

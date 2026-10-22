@@ -1,0 +1,5 @@
+# Compiler tools only; runtime dependencies come from the installed client wheel.
+Nuitka==4.3.1
+ordered-set==4.1.0
+zstandard==0.25.0
+patchelf==0.19.1.0; sys_platform == 'linux'

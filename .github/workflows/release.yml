@@ -1,0 +1,127 @@
+name: Publish Python and native release
+on:
+  workflow_dispatch:
+    inputs:
+      publish_pypi:
+        description: Publish to PyPI and GitHub after TestPyPI verification (requires a version tag)
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+    with:
+      released_core: true
+  build:
+    runs-on: ubuntu-24.04
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: astral-sh/setup-uv@v6
+      - name: Build and audit immutable release distributions
+        run: |
+          uv run --no-project scripts/audit_release.py --source .
+          uv build --out-dir dist
+          uv run --no-project scripts/audit_release.py dist/*
+          uv run --no-project --with twine python -m twine check dist/*
+      - name: Require matching version tag for production
+        if: inputs.publish_pypi
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          uv run --no-project python - <<'PY'
+          import os, pathlib, tomllib
+          version = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']
+          if os.environ['RELEASE_REF'] != 'refs/tags/v' + version:
+              raise SystemExit('Production publishing requires the matching vVERSION tag')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-distributions
+          path: dist/*
+          if-no-files-found: error
+  testpypi:
+    runs-on: ubuntu-24.04
+    needs: build
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/modem-conference
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+  verify-testpypi:
+    runs-on: ubuntu-24.04
+    needs: testpypi
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-distributions
+          path: dist
+      - name: Linux Qt runtime libraries
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libpulse0
+      - name: Retrieve exact wheel from TestPyPI and compare bytes
+        run: uv run --no-project scripts/verify_index.py --index https://test.pypi.org dist/*.whl
+      - name: Install retrieved wheel using released PyPI dependencies
+        run: |
+          uv venv .venv --python 3.14
+          uv pip install --python .venv verified-index/*.whl
+          cd "$RUNNER_TEMP"
+          uv run --no-project --python "$GITHUB_WORKSPACE/.venv" python "$GITHUB_WORKSPACE/scripts/installed_check.py" --client --checkout "$GITHUB_WORKSPACE"
+  native:
+    if: inputs.publish_pypi
+    needs: verify-testpypi
+    uses: ./.github/workflows/native.yml
+  pypi:
+    if: inputs.publish_pypi
+    runs-on: ubuntu-24.04
+    needs: [verify-testpypi, native]
+    environment:
+      name: pypi
+      url: https://pypi.org/p/modem-conference
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+  github:
+    if: inputs.publish_pypi
+    runs-on: ubuntu-24.04
+    needs: pypi
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-bundle-*
+          merge-multiple: true
+          path: native-downloads
+      - name: Publish unsigned preview archives and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          find native-downloads -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' \) -print0 | xargs -0 gh release create "$RELEASE_TAG" --verify-tag --prerelease --generate-notes --title "Modem Conference $RELEASE_TAG (unsigned preview)"

@@ -1,0 +1,90 @@
+name: Native previews
+on:
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: Optional development h324 ref; blank requires the released PyPI dependency
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      core_ref:
+        default: ''
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            name: macos-arm64
+          - os: macos-15-intel
+            name: macos-x64
+          - os: windows-2022
+            name: windows-x64
+          - os: ubuntu-24.04
+            name: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.4'
+      H324_BUILD_REF: ${{ inputs.core_ref || 'released-index' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: astral-sh/setup-uv@v6
+      - name: Linux compiler and Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libpulse0
+      - name: Initialize build environment and audit
+        run: |
+          uv run --no-project scripts/audit_release.py --source .
+          uv build --out-dir dist
+          uv venv .venv --python 3.14
+      - uses: actions/checkout@v4
+        if: inputs.core_ref != ''
+        with:
+          repository: danohn/h324
+          ref: ${{ inputs.core_ref }}
+          path: _core
+      - name: Install explicitly selected development core
+        if: inputs.core_ref != ''
+        run: |
+          git -C _core rev-parse HEAD
+          uv build --project _core --out-dir "$RUNNER_TEMP/core-dist"
+          uv pip install --python .venv "$RUNNER_TEMP"/core-dist/*.whl
+      - name: Install client wheel and pinned build tools
+        run: |
+          uv pip install --python .venv dist/*.whl -r native/requirements-build.txt
+          echo "NATIVE_PYTHON=$(uv python find --python .venv)" >> "$GITHUB_ENV"
+      - name: Build, relocate, smoke-test and archive
+        run: uv run --no-project --python "$NATIVE_PYTHON" python native/build.py --jobs 2
+      - name: Audit this platform's archives
+        run: |
+          shopt -s nullglob
+          uv run --no-project --python "$NATIVE_PYTHON" python scripts/audit_release.py --native dist/native/*.zip dist/native/*.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-bundle-${{ matrix.name }}
+          path: |
+            dist/native/*.zip
+            dist/native/*.tar.gz
+            dist/native/*.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-build-reports-${{ matrix.name }}
+          path: |
+            build/native/**/compilation-report.xml
+            build/native/**/helper-compilation-report.xml
+            build/native/**/pysidedeploy.spec
+          if-no-files-found: ignore
