@@ -35,6 +35,9 @@ def copy_notices(destination: Path) -> None:
         if not source.is_file():
             raise RuntimeError(f"Required notice is missing: {name}")
         shutil.copy2(source, destination / name)
+    if not (ROOT / "LICENSES" / "manifest.json").is_file():
+        raise RuntimeError("Vendored native-runtime license manifest is missing")
+    shutil.copytree(ROOT / "LICENSES", destination / "upstream", dirs_exist_ok=True)
     # Include license texts shipped by all installed runtime dependencies. Build
     # tools are excluded because their executables are not distributed.
     for name in ("modem-conference", "h324", "PySide6", "PySide6_Essentials",
@@ -112,6 +115,7 @@ def main() -> int:
     spec.read(spec_path)
     spec["app"].update(title="ModemConference", project_dir=str(gui),
                        input_file=str(launcher), exec_directory=str(work / "gui-output"))
+    spec["app"]["icon"] = str(Path(PySide6.__file__).parent / "scripts" / "deploy_lib" / "pyside_icon.icns") if sys.platform == "darwin" else spec["app"].get("icon", "")
     spec["python"]["packages"] = "Nuitka==4.3.1,ordered-set==4.1.0,zstandard==0.25.0"
     if sys.platform == "linux":
         spec["python"]["packages"] += ",patchelf==0.19.1.0"
@@ -127,7 +131,8 @@ def main() -> int:
         extra += ["--msvc=latest", "--windows-console-mode=disable"]
     if sys.platform == "darwin":
         extra += ["--macos-app-name=Modem Conference",
-                  "--macos-app-version=0.1.0", "--macos-app-bundle-id=org.modemconference.preview"]
+                  "--macos-app-version=0.1.0", "--macos-signed-app-name=org.modemconference.preview",
+                  "--macos-app-macos-min-version=14.4"]
     spec["nuitka"]["mode"] = "standalone"
     spec["nuitka"]["extra_args"] = subprocess.list2cmdline(extra) if sys.platform == "win32" else __import__("shlex").join(extra)
     spec["nuitka"]["macos.permissions"] = (
@@ -185,6 +190,10 @@ def main() -> int:
                 "h324": metadata.version("h324"), "signed": False,
                 "ffmpeg_bundled": False, "core_ref": os.environ.get("H324_BUILD_REF", "released-index")}
     (notices / "build.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    if sys.platform == "darwin":
+        # Editing Info.plist and adding the helper invalidates Nuitka's ad-hoc
+        # signature. Renew it after staging; this is not Developer ID signing.
+        run(["codesign", "--force", "--deep", "--sign", "-", str(staged)])
     # Run after copying; relocation catches helper lookup and absolute-path errors.
     run([sys.executable, str(ROOT / "native" / "smoke.py"), str(staged)])
     arch = {"arm64": "arm64", "aarch64": "arm64", "AMD64": "x64", "x86_64": "x64"}.get(platform.machine(), platform.machine())
