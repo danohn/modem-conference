@@ -55,7 +55,25 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     options = ['--import-mode=importlib', '-q', '-s', '-W', 'ignore::DeprecationWarning']
-    cases = [('minimal_signal_spy', MINIMAL, [])]
+    no_reads = MINIMAL.replace('    assert spy.at(0) == [True]', '    pass').replace(
+        '    assert spy.at(1) == [False]', '    pass')
+    no_spy = no_reads.replace('    spy = QSignalSpy(sender.value)', '    pass').replace(
+        '    del spy', '    pass')
+    empty_spy = no_reads.replace('    sender.value.emit(True)', '    pass').replace(
+        '    sender.value.emit(False)', '    pass')
+    ordinary_slot = MINIMAL.replace('    spy = QSignalSpy(sender.value)',
+        '    values = []; sender.value.connect(values.append)').replace(
+        'spy.at(0)', 'values[:1]').replace('spy.at(1)', 'values[1:]').replace(
+        '    del spy', '    sender.value.disconnect(values.append); del values')
+    integer_spy = MINIMAL.replace('Signal(bool)', 'Signal(int)')
+    string_spy = MINIMAL.replace('Signal(bool)', 'Signal(str)').replace(
+        '.emit(True)', ".emit('a')").replace('.emit(False)', ".emit('b')").replace(
+        '== [True]', "== ['a']").replace('== [False]', "== ['b']")
+    cases = [(name, code, []) for name, code in (
+        ('minimal_signal_spy', MINIMAL), ('emit_without_spy', no_spy),
+        ('spy_without_read', no_reads), ('spy_without_emit', empty_spy),
+        ('ordinary_slot', ordinary_slot), ('integer_spy', integer_spy),
+        ('string_spy', string_spy))]
     cases.extend((path.name, PYTEST, [str(path), *options])
                  for path in sorted(args.tests.glob('test_*.py')))
     cases.extend((f'full_suite_{i}', PYTEST, [str(args.tests), *options]) for i in range(2))
