@@ -162,6 +162,13 @@ class Playback(QObject):
             del self._audio_bytes[:count]
             if not data:
                 return
+            # Audio has its own start condition. Video may be delayed or paused
+            # indefinitely by the dial-up budget, so PCM must not wait for a
+            # first video picture before opening the selected audio output.
+            if not self._playing:
+                self._playing = True
+                if self._audio_enabled:
+                    self._open_audio()
             if sys.byteorder == 'big':
                 converted = array('h'); converted.frombytes(data); converted.byteswap()
                 data = converted.tobytes()
