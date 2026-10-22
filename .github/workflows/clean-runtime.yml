@@ -1,0 +1,33 @@
+name: Audit existing Linux native runtime
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed native workflow run containing native-bundle-linux-x64
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-bundle-linux-x64
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: candidate
+      - name: Extract and verify a clean OS without Python, uv or FFmpeg
+        shell: bash
+        run: |
+          cd candidate
+          sha256sum --check *.sha256
+          mkdir -p extracted
+          tar -xzf *.tar.gz -C extracted
+          cd "$GITHUB_WORKSPACE"
+          docker build -f native/clean-runtime.Dockerfile -t modem-conference-clean-runtime native
+          docker run --rm --read-only --network none --user 65534:65534 --tmpfs /tmp:rw,mode=1777 -v "$GITHUB_WORKSPACE/candidate/extracted/ModemConference:/opt/app:ro" modem-conference-clean-runtime

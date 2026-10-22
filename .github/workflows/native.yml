@@ -73,6 +73,11 @@ jobs:
           echo "NATIVE_PYTHON=$NATIVE_PYTHON" >> "$GITHUB_ENV"
       - name: Build, relocate, smoke-test and archive
         run: uv run --no-project --python "$NATIVE_PYTHON" python native/build.py --jobs 2
+      - name: Verify a clean OS without Python, uv or FFmpeg
+        if: runner.os == 'Linux'
+        run: |
+          docker build -f native/clean-runtime.Dockerfile -t modem-conference-clean-runtime native
+          docker run --rm --read-only --network none --user 65534:65534 --tmpfs /tmp:rw,mode=1777 -v "$GITHUB_WORKSPACE/build/native/stage/ModemConference:/opt/app:ro" modem-conference-clean-runtime
       - name: Audit this platform's archives
         run: |
           shopt -s nullglob

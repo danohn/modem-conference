@@ -73,6 +73,15 @@ and GUI with an empty PATH and cleared Python/Qt build environment variables.
 The smoke check opens no modem, camera or microphone. A successful smoke test
 does not establish device compatibility or full desktop integration.
 
+Linux additionally runs the staged application read-only in an Ubuntu 24.04
+container with desktop OS libraries and fonts only. The required check verifies
+that Python, uv, ffmpeg and ffprobe executables and Python packages are absent,
+then runs the helper, protocol/schema initialization and GUI with networking
+disabled. The application supplies its own bundled runtime. macOS and Windows
+use the relocated empty-PATH check; independent machine validation is reported
+separately. `clean-runtime.yml` can repeat the Linux check against a previously
+built native artifact without recompiling it.
+
 ## Opening unsigned previews
 
 - **macOS 14.4+:** extract the ZIP and move the app to Applications. Gatekeeper
