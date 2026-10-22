@@ -22,6 +22,8 @@ def command(operation: str, arguments=()) -> tuple[str, list[str]]:
 
 
 def main(argv=None):
+    from .runtime import require_supported_runtime
+    require_supported_runtime()
     argv = sys.argv[1:] if argv is None else argv
     if argv == ["--self-test"]:
         from importlib.resources import files

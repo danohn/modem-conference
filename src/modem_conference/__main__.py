@@ -8,6 +8,10 @@ from pathlib import Path
 import signal
 import sys
 
+from .runtime import require_supported_runtime
+
+require_supported_runtime()
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
