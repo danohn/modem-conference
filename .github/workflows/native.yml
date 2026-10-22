@@ -64,7 +64,8 @@ jobs:
       - name: Install client wheel and pinned build tools
         run: |
           uv pip install --python .venv dist/*.whl -r native/requirements-build.txt
-          echo "NATIVE_PYTHON=$(uv python find --python .venv)" >> "$GITHUB_ENV"
+          NATIVE_PYTHON=$(uv python find "$GITHUB_WORKSPACE/.venv")
+          echo "NATIVE_PYTHON=$NATIVE_PYTHON" >> "$GITHUB_ENV"
       - name: Build, relocate, smoke-test and archive
         run: uv run --no-project --python "$NATIVE_PYTHON" python native/build.py --jobs 2
       - name: Audit this platform's archives
