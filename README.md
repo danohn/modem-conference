@@ -33,6 +33,10 @@ Python installation; it does not modify Python's global bundle or system
 privacy settings. Recreate it with `modem-conference --install-macos-launcher`
 after moving a virtual environment. Native release apps already provide their
 own bundle. See [Qt's permission requirements](https://doc.qt.io/qt-6/permissions.html).
+The source launcher has been checked with uv's standalone Python and Homebrew
+framework Python on macOS. Other interpreter distributions, including
+python.org installers, still need validation; the native app is recommended
+when the interpreter cannot run after being copied into its local app bundle.
 
 - macOS: `brew install ffmpeg`
 - Ubuntu: `sudo apt install ffmpeg`

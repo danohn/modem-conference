@@ -26,9 +26,16 @@ def main(argv=None):
     if argv == ["--self-test"]:
         from importlib.resources import files
         from . import __version__
+        from h324.activity import CallActivity
         import json
+        activity = CallActivity()
+        try:
+            started = activity.start()
+        finally:
+            released = activity.close()
         print(json.dumps({"version": __version__, "helper": True,
-                          "asset": files("modem_conference").joinpath("assets/combo-arrow.svg").is_file()}))
+                          "asset": files("modem_conference").joinpath("assets/combo-arrow.svg").is_file(),
+                          "activity": {"started":started, "released":released}}))
         return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("worker", "prepare", "acceptance"))

@@ -51,3 +51,12 @@ def test_explicit_user_directories_isolate_config_cache_and_logs(monkeypatch, tm
     save_settings({'number_1':'*123#'})
     assert load_settings() == {'number_1':'*123#'}
     assert (tmp_path/'config/settings.toml').exists()
+
+
+def test_helper_self_test_releases_native_activity_without_opening_devices(capsys):
+    import json
+    assert helper.main(['--self-test']) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report['helper'] and report['asset']
+    assert report['activity']['released']['active'] is False
+    assert report['activity']['started']['supported'] is (sys.platform == 'darwin')
