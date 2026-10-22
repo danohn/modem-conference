@@ -69,8 +69,27 @@ Consult the [current validation record](https://github.com/danohn/modem-conferen
 for exact source revisions, test runs, physical-device results and unresolved
 issues. Build success does not imply that every modem, driver or media device
 has been tested. Linux physical modem and capture-device validation remains
-**unverified**; Windows hardware results must be checked in that record before
-assuming compatibility.
+**unverified**.
+
+The [corrected four-platform native candidates](https://github.com/danohn/modem-conference/actions/runs/39728215208)
+built from core `3547027` and client `812676b` passed compilation, relocated
+helper/GUI launch and archive audits. A short physical camera retest with the
+native Windows GUI and macOS source-app harness then passed on the Mac at an
+observed 14,400 bps, including graceful EndSession and confirmed Mac modem
+restoration. The Windows user
+confirmed Idle, no error dialogs and stopped capture after the Mac hung up.
+The corrected Windows diagnostic log has not been reviewed; its internal
+cleanup sequence and counters remain unverified. Earlier logs separately
+establish over ten minutes of media transmission and modem restoration, but
+that earlier build failed normal remote disconnect.
+
+**Audio and video can still arrive several seconds late.** The maintainer
+reported this in the corrected physical retest. The Mac source admitted only
+six video pictures and paused video for the local bandwidth budget 29 times
+during 65.10 seconds of capture, while audio continued. Local AVI packet framing
+removes one sender picture interval in software tests; a physical end-to-end
+latency improvement has not been established. Receiver lookahead, video
+congestion/restarts and the unresolved audio delay remain preview limits.
 
 For a new modem/driver/OS combination, follow the
 [manual acceptance instructions](https://github.com/danohn/modem-conference/blob/main/docs/hardware-testing.md).

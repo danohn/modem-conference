@@ -11,9 +11,9 @@ are separate checks. This record deliberately distinguishes them.
 | macOS physical file/file call | Passed at reported 14,400 bps in both directions, including pause/resume and repeated sending |
 | Camera/microphone hardware | Ten-minute physical macOS file/camera call passed after the pacing correction; both directions decoded audio/video and restored their modems |
 | Continuous encoding | Ten minutes passed with 19,997 of 20,000 expected audio frames, bounded buffers and video recovery |
-| Four native downloads | [All four candidates passed compilation, relocated helper/GUI launch and archive audit](https://github.com/danohn/modem-conference/actions/runs/39722582313); final source revision must be rebuilt |
+| Four native downloads | [All four corrected candidates passed compilation, relocated helper/GUI launch and archive audit](https://github.com/danohn/modem-conference/actions/runs/39728215208), using core `3547027` and client `812676b`; released-index artifacts remain a separate publishing check |
 | Linux without system Python | [Candidate helper, worker and GUI passed in a minimal Ubuntu 24.04 container without Python, uv or FFmpeg executables](https://github.com/danohn/modem-conference/actions/runs/39720565872) |
-| Windows physical modem/capture | Both endpoint logs confirm over 600 seconds of live audio/video at 14,400 bps and successful modem restoration; orderly Windows remote disconnect failed and requires a corrected-build retest |
+| Windows physical modem/capture | Earlier endpoint logs confirm over 600 seconds of live audio/video at 14,400 bps and successful modem restoration. The corrected short retest passed on Mac; the Windows user confirmed Idle, no errors and stopped capture after remote hangup. The corrected Windows log has not been reviewed. |
 | Linux physical modem/capture | **Unverified** until hardware is available |
 
 The earlier client matrix passed 63 tests on macOS and 62 tests plus one
@@ -129,15 +129,32 @@ and its thread priority/timer requests were released. However, it recorded one
 H.223 abort sequence with a partial video SDU exactly when the Mac hung up.
 Capture continued while an error dialog was open, followed by 246 stale
 "No connected call" errors. The sustained media and both modem restorations
-passed; orderly remote disconnect **failed** and requires a corrected-build retest.
+passed; orderly remote disconnect **failed in that attempt**.
 
 Core `3547027` adds bounded media draining and H.245 channel/EndSession closure
 before modem teardown. Client `812676b` stops capture before reporting a terminal
 error, discards stale media and uses nonblocking, coalesced error dialogs. Its
 shutdown wait derives from the shared worker cleanup limits. Delayed-transport,
-cleanup-deadline and nested Qt event-loop regressions pass. These software
-checks require a corrected native Windows/Mac call before normal disconnect can
-be marked physically verified.
+cleanup-deadline and nested Qt event-loop regressions pass.
+
+The corrected physical retest used the native Windows
+`preview-20261022-2` candidate and a macOS source-app acceptance harness, both
+running core `3547027` and client `812676b`. The Mac requested a 60-second camera
+test and recorded 65.10 seconds of actual capture. Its acceptance report passed,
+with an observed 14,400 bps bearer, 1,291 received audio frames and 129 received
+video AL3 SDUs, and decoded output of 64 pictures and 589,440 PCM bytes. The Mac
+initiated graceful hangup; its session both sent and received EndSession.
+There were no reported worker errors, active underruns or framing errors. Mac
+modem restoration succeeded in 7.657 seconds, its serial port was separately
+confirmed free, and no forced shutdown was needed.
+
+The Windows user confirmed that the GUI returned to **Idle**, displayed no
+errors and stopped capture after that remote hangup. This is direct operator
+confirmation of the corrected Windows behavior; the current Windows diagnostic
+log has **not** been reviewed, so its internal close sequence, cleanup report and
+counters are not independently established by this retest. The earlier failed
+disconnect remains recorded above. This short retest also does not replace the
+earlier ten-minute media evidence with a new ten-minute soak.
 
 The maintainer reported that movements arrived several seconds late. Mac
 connection logs also showed repeated local encoder budget pauses while audio
@@ -151,8 +168,15 @@ and 1,128 complete pictures. Audio continued across encoder restarts. Encoder
 children peaked at two, queued raw input at 39,128 bytes, sampled combined RSS at
 182,960,128 bytes, and Python heap at 341,585 bytes. A single-frame regression
 also requires an encoded picture before another input frame or EOF. The measured
-sender saving is approximately one picture interval (about 0.5 seconds at 2 fps);
-it has not yet been measured end to end in a corrected physical call.
+sender saving is approximately one picture interval (about 0.5 seconds at 2 fps).
+The corrected physical retest did **not** establish an end-to-end latency gain:
+the maintainer still reported both audio and video arriving several seconds
+late. Mac capture produced 2,117 audio frames but admitted only six video
+pictures, with 29 local video-budget pauses during the 65.10-second interval.
+The visible pause status therefore reflects substantial congestion in this
+scene. Receiver lookahead and congestion/restart delays remain limitations;
+the cause and size of the reported audio delay have not been isolated. Passing
+transport integrity and orderly hangup do not establish low media latency.
 
 An earlier attempt failed during initial framing acquisition. It was retained as
 a known startup-reliability issue, and the application restored both modems. The
