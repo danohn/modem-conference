@@ -92,6 +92,23 @@ class CaptureMetrics:
                 'audio_output_ratio':self.outgoing_frames[1]/max(1, expected)}
 
 
+def transmission_clock(modes, metrics, armed_at):
+    """Start a hardware test after every live source actually produced media."""
+    if armed_at is None:
+        return None
+    cameras = [metrics[str(index+1)].started_at for index, mode in enumerate(modes) if mode == 'camera']
+    if any(start is None for start in cameras):
+        return None
+    return max(cameras) if cameras else armed_at
+
+
+def capture_duration_accepted(summary, requested_seconds):
+    """Permission delays cannot shorten the required live capture interval."""
+    return (summary['capture_duration_seconds']+.05 >= requested_seconds
+            and summary['audio_output_ratio'] >= .90
+            and summary['outgoing_frames'][1] >= requested_seconds*1000/30*.90)
+
+
 def rss_bytes(pids):
     """Sample parent and encoder RSS, with no optional Python dependency."""
     if sys.platform != 'win32':
@@ -297,6 +314,7 @@ def hardware(args, app):
         controllers.append(controller); windows.append(window)
         window.show()
     started = time.monotonic()
+    armed_at = None
     transmitting = None
     closing = False
     completed_duration = False
@@ -309,20 +327,24 @@ def hardware(args, app):
                 capture_metrics[controller.station].ended_at = time.monotonic()
                 controller.shutdown()
     def tick():
-        nonlocal transmitting, completed_duration, last_rss
+        nonlocal armed_at, transmitting, completed_duration, last_rss
         now = time.monotonic()
         if closing:
             if all(c._closed for c in controllers):
                 timer.stop(); app.quit()
             return
-        if report['errors'] or now-started > 100+args.seconds:
+        timed_out = ((armed_at is None and now-started > 100)
+                     or armed_at is not None and transmitting is None and now-armed_at > 120)
+        if report['errors'] or timed_out:
             if not report['errors']:
                 report['errors'].append({'message':'Call setup or transmission timed out'})
             close(); return
-        if transmitting is None and all(c.state == 'connected' for c in controllers):
-            transmitting = now
+        if armed_at is None and all(c.state == 'connected' for c in controllers):
+            armed_at = now
             for controller in controllers:
                 controller.send_movie()
+        if transmitting is None:
+            transmitting = transmission_clock(modes, capture_metrics, armed_at)
         if now-last_rss >= 5:
             last_rss = now
             pids = {os.getpid()}
@@ -348,7 +370,7 @@ def hardware(args, app):
         if transmitting is not None and now-transmitting >= args.seconds:
             completed_duration = True
             close()
-        elif transmitting is not None and any(c.state in ('idle','error') for c in controllers):
+        elif armed_at is not None and any(c.state in ('idle','error') for c in controllers):
             report['errors'].append({'message':'Call disconnected before the requested duration'})
             close()
     previous_hook = sys.excepthook
@@ -373,13 +395,15 @@ def hardware(args, app):
     report['events'] = list(events)
     report['rss_samples'] = list(rss_history)
     report['completed_duration'] = completed_duration
+    report['source_armed_elapsed_seconds'] = armed_at-started if armed_at is not None else None
+    report['transmission_clock_elapsed_seconds'] = transmitting-started if transmitting is not None else None
     report['passed'] = (completed_duration and not report['errors']
                         and all(c._closed and not c.capture.active for c in controllers)
                         and all(count > 0 for channels in report['received'].values() for count in channels.values())
                         and all(count > 0 for channels in report['decoded'].values() for count in channels.values())
                         and all(report['rates'].get(label) == 14400 for label in ('1','2'))
                         and all(report['bearers'].get(label) is not None for label in ('1','2'))
-                        and all(report['capture'][str(index+1)]['audio_output_ratio'] >= .90
+                        and all(capture_duration_accepted(report['capture'][str(index+1)], args.seconds)
                                 for index, mode in enumerate(modes) if mode == 'camera')
                         and (not args.exercise_video_overload or
                              all(report['forced_video_probes'].get(str(index+1), {}).get('audio_continued')

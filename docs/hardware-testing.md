@@ -63,9 +63,15 @@ does not open camera/microphone hardware or prove modem control transport. The h
 require media received on both channels at both stations, and clean worker and
 capture shutdown. They save counts and diagnostics, with no encoded call recording.
 Camera reports also require at least 90% of the expected 30 ms audio frames
-over the capture interval. They record local preview counts, outgoing encoded
+over a full requested capture interval. The live-test clock starts after every
+camera source has produced encoded media, so time spent granting permissions
+does not shorten the capture run. File-only runs keep their send-time clock.
+Reports record local preview counts, outgoing encoded
 frame/picture and byte counts, bounded capture-status histories, local and
 worker video-overload counters, and sampled parent/worker/encoder/decoder RSS.
+RSS measurements are observations for trend inspection, not an enforced
+machine-independent absolute-memory acceptance limit. Queue and encoder-child
+bounds are checked separately by the synthetic stress test.
 
 Bearer acceptance records both the raw V.80 in-band rate and the separately
 validated carrier report. It accepts 14,400 bps from either explicit in-band

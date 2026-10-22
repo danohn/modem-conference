@@ -1,4 +1,5 @@
-from modem_conference.acceptance import accepted_bearer, CaptureMetrics
+from modem_conference.acceptance import (accepted_bearer, CaptureMetrics,
+                                        transmission_clock, capture_duration_accepted)
 
 
 def carrier_report():
@@ -38,3 +39,24 @@ def test_capture_metrics_count_without_retaining_frames_or_unbounded_statuses():
     assert len(report['status_history']) == 100
     assert len(report['status_counts']) <= 33
     assert report['audio_output_ratio'] >= 1.
+
+
+def test_hardware_clock_waits_for_all_live_sources_after_permission_delay():
+    metrics = {'1':CaptureMetrics(), '2':CaptureMetrics()}
+    assert transmission_clock(['file','file'], metrics, 10.) == 10.
+    assert transmission_clock(['file','camera'], metrics, 10.) is None
+    metrics['2'].started_at = 70.
+    assert transmission_clock(['file','camera'], metrics, 10.) == 70.
+    assert transmission_clock(['camera','camera'], metrics, 10.) is None
+    metrics['1'].started_at = 90.
+    assert transmission_clock(['camera','camera'], metrics, 10.) == 90.
+
+
+def test_permission_delay_cannot_turn_short_capture_into_a_full_duration_pass():
+    short = {'capture_duration_seconds':540., 'audio_output_ratio':.99,
+             'outgoing_frames':{1:17820,2:900}}
+    assert not capture_duration_accepted(short, 600.)
+    full = {'capture_duration_seconds':600., 'audio_output_ratio':.99,
+            'outgoing_frames':{1:19800,2:1000}}
+    assert capture_duration_accepted(full, 600.)
+    assert not capture_duration_accepted({**full, 'outgoing_frames':{1:100,2:1000}}, 600.)
