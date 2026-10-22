@@ -5,16 +5,24 @@ are separate checks. This record deliberately distinguishes them.
 
 | Area | Current evidence |
 |---|---|
-| Core protocols and async API | [227 installed-wheel tests on all 12 OS/Python combinations](https://github.com/danohn/h324/actions/runs/39722947196) |
-| Client tests | [63 tests passed on macOS; 62 passed and one macOS-only check skipped on Windows/Linux, across all 12 OS/Python combinations](https://github.com/danohn/modem-conference/actions/runs/39722014594) |
+| Core protocols and async API | [254 installed-wheel tests on all 12 OS/Python combinations](https://github.com/danohn/h324/actions/runs/39726104180) |
+| Client tests | [Earlier 12-job matrix passed](https://github.com/danohn/modem-conference/actions/runs/39722014594); a later Linux/Python 3.11 finalization failure is under investigation, as described below |
 | Clean wheel installation | CLI, resources, helper and GUI launch passed outside both checkouts on Python 3.11 and 3.14 |
 | macOS physical file/file call | Passed at reported 14,400 bps in both directions, including pause/resume and repeated sending |
 | Camera/microphone hardware | Ten-minute physical macOS file/camera call passed after the pacing correction; both directions decoded audio/video and restored their modems |
 | Continuous encoding | Ten minutes passed with 19,997 of 20,000 expected audio frames, bounded buffers and video recovery |
-| Four native downloads | All four candidate builds passed compilation, relocated helper/GUI launch and archive audit; final source revision must be rebuilt |
+| Four native downloads | [All four candidates passed compilation, relocated helper/GUI launch and archive audit](https://github.com/danohn/modem-conference/actions/runs/39722582313); final source revision must be rebuilt |
 | Linux without system Python | [Candidate helper, worker and GUI passed in a minimal Ubuntu 24.04 container without Python, uv or FFmpeg executables](https://github.com/danohn/modem-conference/actions/runs/39720565872) |
-| Windows physical modem/capture | Awaiting maintainer-run acceptance script |
+| Windows physical modem/capture | Windows 11 / COM6 native GUI camera call completed with macOS; maintainer confirmed picture and sound, and Mac-side records cover over 600 seconds. Windows logs/driver details remain unverified |
 | Linux physical modem/capture | **Unverified** until hardware is available |
+
+The earlier client matrix passed 63 tests on macOS and 62 tests plus one
+macOS-only skip on Windows/Linux. A [subsequent run](https://github.com/danohn/modem-conference/actions/runs/39723873005)
+passed its test assertions but aborted during Python 3.11 finalization on Linux.
+An isolated diagnostic reproduced reference-count corruption with PySide 6.12.0
+signals without importing this project. The same minimal test on macOS Python
+3.11 did not reproduce the loss. Linux/Python 3.11 source-install acceptance
+remains unresolved; successful native Python 3.14 calls do not establish it.
 
 The macOS file call used two USB CX93001 modems on macOS 27.0.1 (Apple Silicon),
 analogue FXS ports and a local telephone switch. Both received codec streams
@@ -89,6 +97,33 @@ resources and workers shut down, modem restoration was confirmed, and both
 serial ports were independently checked free. This is one passing ten-minute
 physical test on the stated macOS hardware, rather than a guarantee of unlimited
 call duration or physical Windows/Linux verification.
+
+The next call used **native applications on Windows 11 and macOS**, with one
+CX93001 modem per computer. Both downloads were built from core `4e864d8` and
+client `eed05ea`. The maintainer operated the Windows GUI on COM6 and confirmed
+incoming picture and sound. The Mac also displayed received video and counted
+21,093 incoming audio frames with 1,172 H.263 picture starts. Its outgoing
+capture produced 20,287 consecutive 30 ms audio frames (608.610 encoded seconds,
+608.611 seconds of command wall time) and 700 pictures. No audio timestamp
+discontinuities or worker errors were recorded. Mac-side actual bearer evidence
+was 14,400 bps, the transmit queue peaked at 685 bytes, and cleanup confirmed
+profile restoration and release of the Mac serial port.
+
+Combined Mac app/helper/FFmpeg RSS peaked at approximately 532 MiB in samples
+collected from 167 seconds after source start. Early and late active sample means
+were approximately 517 and 510 MiB; the earlier startup peak was not measured.
+This manually operated call does not supply independent Windows-side frame,
+memory or restoration measurements. The Windows OS build, modem driver and
+capture-device identities remain unverified.
+
+The maintainer reported that movements arrived several seconds late. Mac
+connection logs also showed repeated local encoder budget pauses while audio
+continued. Separate synthetic measurements found one-picture lookahead in both
+the elementary H.263 encoder parser and decoder: approximately 0.5 seconds per
+stage at 2 fps, increasing at lower picture rates and across overload pauses.
+These are acknowledged latency limitations, not transport errors. Subsequent
+local encoder packet framing is being validated separately; its synthetic result
+must not be presented as an end-to-end improvement measured in this call.
 
 An earlier attempt failed during initial framing acquisition. It was retained as
 a known startup-reliability issue, and the application restored both modems. The
