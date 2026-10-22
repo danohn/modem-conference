@@ -138,7 +138,7 @@ pause/resume, repeated sends, high-motion-to-quiet-scene recovery, and closing
 during initialization/conversion.
 
 Normal window close first asks the helper to shut down over IPC and allows
-30 seconds for protocol close and modem restoration before requesting process
+32 seconds for protocol close and modem restoration before requesting process
 termination. A helper that still has not exited five seconds later is killed,
 and the log explicitly records that cleanup was not confirmed. A fatal worker
 error stops local capture before displaying its message and requests hangup;

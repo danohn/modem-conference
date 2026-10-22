@@ -11,7 +11,8 @@ Other modems and independent H.324 terminals need interoperability testing.
 
 ## Install and start
 
-Use Python 3.11–3.14 and an external FFmpeg installation:
+Use Python **3.11–3.14 on macOS/Windows**, or **3.12–3.14 on Linux**, with an
+external FFmpeg installation:
 
 ```sh
 pip install modem-conference==0.1.0a1
@@ -23,7 +24,9 @@ modem-conference --pair
 Native preview downloads bundle Python and Qt. They still require FFmpeg and
 FFprobe. Use **Options → Dependencies** to configure explicit executable paths
 or use PATH. A suitable build must encode H.263, G.723.1, MPEG-4, AAC and PNG,
-and decode H.263 and G.723.1. No libx264 encoder is required.
+and decode H.263 and G.723.1, and provide the AVI muxer for local live-encoder
+packet framing. No AVI container data crosses the modem link. No libx264 encoder
+is required.
 
 On macOS, the Python-installed launcher creates a small per-user **Modem
 Conference.app** and starts through it automatically. This supplies the
@@ -75,6 +78,8 @@ are admitted within a bounded bandwidth budget. Video overload pauses video and
 restarts with a fresh INTRA picture, while audio and modem control continue.
 High-motion scenes may therefore show intermittent pictures. Received video has
 one picture of parser delay; this is a prototype rather than a low-latency video phone.
+The sender uses local packet lengths to avoid waiting for another encoded
+picture. See the [measured latency and packet-framing limits](docs/video-packet-framing.md).
 
 Settings, cache and logs use platform-standard user directories. Raw received
 media recording is **off** unless `--capture` is supplied. Logs may include port
@@ -86,6 +91,11 @@ Targets: macOS 14.4+ (Apple Silicon/Intel), Windows 10/11 x64, and Ubuntu 24.04+
 x64, using Qt/PySide6 6.12. Software CI coverage and actual hardware validation are
 different. Physical Linux modem and capture-device operation are **unverified**
 until tested on hardware; see the release notes for other tested combinations.
+Linux source installations require Python 3.12 or newer because the official
+PySide6 6.12.0 Linux package fails a signal reference-count check on Python 3.11.
+Installation on Linux/Python 3.11 may complete, but the client refuses to start
+before importing Qt and explains how to upgrade. Native downloads include Python
+3.14. The separate `h324` library supports Python 3.11–3.14 on every target OS.
 On Linux the account needs serial-device access (commonly membership in `dialout`),
 and desktop camera/audio permissions. Install the applicable modem driver first.
 

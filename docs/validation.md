@@ -5,15 +5,15 @@ are separate checks. This record deliberately distinguishes them.
 
 | Area | Current evidence |
 |---|---|
-| Core protocols and async API | [254 installed-wheel tests on all 12 OS/Python combinations](https://github.com/danohn/h324/actions/runs/39726104180) |
-| Client tests | [Earlier 12-job matrix passed](https://github.com/danohn/modem-conference/actions/runs/39722014594); a later Linux/Python 3.11 finalization failure is under investigation, as described below |
+| Core protocols and async API | [284 installed-wheel tests on all 12 OS/Python combinations](https://github.com/danohn/h324/actions/runs/39727978028) |
+| Client tests | [All 11 supported OS/Python combinations passed, plus the separate installed Linux/Python 3.11 rejection check](https://github.com/danohn/modem-conference/actions/runs/39727877298) |
 | Clean wheel installation | CLI, resources, helper and GUI launch passed outside both checkouts on Python 3.11 and 3.14 |
 | macOS physical file/file call | Passed at reported 14,400 bps in both directions, including pause/resume and repeated sending |
 | Camera/microphone hardware | Ten-minute physical macOS file/camera call passed after the pacing correction; both directions decoded audio/video and restored their modems |
 | Continuous encoding | Ten minutes passed with 19,997 of 20,000 expected audio frames, bounded buffers and video recovery |
 | Four native downloads | [All four candidates passed compilation, relocated helper/GUI launch and archive audit](https://github.com/danohn/modem-conference/actions/runs/39722582313); final source revision must be rebuilt |
 | Linux without system Python | [Candidate helper, worker and GUI passed in a minimal Ubuntu 24.04 container without Python, uv or FFmpeg executables](https://github.com/danohn/modem-conference/actions/runs/39720565872) |
-| Windows physical modem/capture | Windows 11 / COM6 native GUI camera call completed with macOS; maintainer confirmed picture and sound, and Mac-side records cover over 600 seconds. Windows logs/driver details remain unverified |
+| Windows physical modem/capture | Both endpoint logs confirm over 600 seconds of live audio/video at 14,400 bps and successful modem restoration; orderly Windows remote disconnect failed and requires a corrected-build retest |
 | Linux physical modem/capture | **Unverified** until hardware is available |
 
 The earlier client matrix passed 63 tests on macOS and 62 tests plus one
@@ -21,8 +21,15 @@ macOS-only skip on Windows/Linux. A [subsequent run](https://github.com/danohn/m
 passed its test assertions but aborted during Python 3.11 finalization on Linux.
 An isolated diagnostic reproduced reference-count corruption with PySide 6.12.0
 signals without importing this project. The same minimal test on macOS Python
-3.11 did not reproduce the loss. Linux/Python 3.11 source-install acceptance
-remains unresolved; successful native Python 3.14 calls do not establish it.
+3.11 did not reproduce the loss. The selected support policy retains Qt 6.12
+everywhere and requires Python 3.12–3.14 for the Linux client; macOS/Windows
+support Python 3.11–3.14. An installed-package subprocess check verifies that
+Linux/Python 3.11 launchers reject execution before importing Qt, with useful
+upgrade guidance. The independent library remains tested on Python 3.11–3.14
+on all target operating systems. The current macOS suite passes 82 tests; the
+other supported platforms pass 81 with one macOS-only skip. A subprocess
+regression checks repeated Qt signal emissions and clean interpreter exit on
+every supported combination, including Windows/Python 3.11.
 
 The macOS file call used two USB CX93001 modems on macOS 27.0.1 (Apple Silicon),
 analogue FXS ports and a local telephone switch. Both received codec streams
@@ -112,18 +119,40 @@ profile restoration and release of the Mac serial port.
 Combined Mac app/helper/FFmpeg RSS peaked at approximately 532 MiB in samples
 collected from 167 seconds after source start. Early and late active sample means
 were approximately 517 and 510 MiB; the earlier startup peak was not measured.
-This manually operated call does not supply independent Windows-side frame,
-memory or restoration measurements. The Windows OS build, modem driver and
+Windows memory was not sampled. The Windows OS build, modem driver and
 capture-device identities remain unverified.
+
+The subsequently supplied Windows diagnostic log confirmed actual 14,400 bps,
+633.75 seconds of consecutive outgoing audio before hangup, 20,283 received audio
+frames and 700 received H.263 picture starts. Windows modem restoration succeeded
+and its thread priority/timer requests were released. However, it recorded one
+H.223 abort sequence with a partial video SDU exactly when the Mac hung up.
+Capture continued while an error dialog was open, followed by 246 stale
+"No connected call" errors. The sustained media and both modem restorations
+passed; orderly remote disconnect **failed** and requires a corrected-build retest.
+
+Core `3547027` adds bounded media draining and H.245 channel/EndSession closure
+before modem teardown. Client `812676b` stops capture before reporting a terminal
+error, discards stale media and uses nonblocking, coalesced error dialogs. Its
+shutdown wait derives from the shared worker cleanup limits. Delayed-transport,
+cleanup-deadline and nested Qt event-loop regressions pass. These software
+checks require a corrected native Windows/Mac call before normal disconnect can
+be marked physically verified.
 
 The maintainer reported that movements arrived several seconds late. Mac
 connection logs also showed repeated local encoder budget pauses while audio
 continued. Separate synthetic measurements found one-picture lookahead in both
 the elementary H.263 encoder parser and decoder: approximately 0.5 seconds per
 stage at 2 fps, increasing at lower picture rates and across overload pauses.
-These are acknowledged latency limitations, not transport errors. Subsequent
-local encoder packet framing is being validated separately; its synthetic result
-must not be presented as an end-to-end improvement measured in this call.
+These are acknowledged latency limitations, not transport errors. The subsequent
+encoder-only local AVI packet framing passed a separate 600-second synthetic
+test: 599.993 seconds of supplied PCM, 19,997 of 20,000 expected audio frames,
+and 1,128 complete pictures. Audio continued across encoder restarts. Encoder
+children peaked at two, queued raw input at 39,128 bytes, sampled combined RSS at
+182,960,128 bytes, and Python heap at 341,585 bytes. A single-frame regression
+also requires an encoded picture before another input frame or EOF. The measured
+sender saving is approximately one picture interval (about 0.5 seconds at 2 fps);
+it has not yet been measured end to end in a corrected physical call.
 
 An earlier attempt failed during initial framing acquisition. It was retained as
 a known startup-reliability issue, and the application restored both modems. The
