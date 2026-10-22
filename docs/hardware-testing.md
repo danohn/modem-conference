@@ -56,6 +56,15 @@ does not open camera/microphone hardware or prove modem control transport. The h
 require media received on both channels at both stations, and clean worker and
 capture shutdown. They save counts and diagnostics, with no encoded call recording.
 
+Bearer acceptance records both the raw V.80 in-band rate and the separately
+validated carrier report. It accepts 14,400 bps from either explicit in-band
+evidence or a consistent `+MCR: V32B`, `+MRR: 14400,14400`, `CONNECT 14400`
+triple reported by the modem during connection. The report names the source;
+an unspecified in-band rate remains unspecified. Requested/configured rates
+never substitute for observed bearer evidence. A previous stricter report may
+therefore remain failed while its recorded carrier lines support a separately
+identified post-call check.
+
 Record OS/version, Python/Qt versions, modem chipset and driver, connection path,
 camera/microphone devices, call direction, actual modem rates, underrun counts,
 and whether audio/video played successfully. Supplement automated reports with

@@ -27,6 +27,27 @@ from modem_conference.theme import apply_theme
 from modem_conference.window import StationWindow
 
 
+def accepted_bearer(inband_rate, carrier_report):
+    """Accept actual rate evidence, preserving its origin rather than a setting."""
+    if inband_rate is not None:
+        if inband_rate != 14400:
+            return None
+        return {'source': 'V.80 in-band', 'tx_bps': 14400, 'rx_bps': 14400}
+    if not isinstance(carrier_report, dict):
+        return None
+    required = {'source': 'AT+MRR', 'validated': True, 'phase': 'connect',
+                'modulation': 'V32B', 'tx_bps': 14400, 'rx_bps': 14400, 'connect_bps': 14400}
+    if any(carrier_report.get(key) != value for key, value in required.items()):
+        return None
+    # Revalidate the literal carrier reports independently of the worker flag.
+    from h324.modem import parse_carrier_report
+    parsed = parse_carrier_report([carrier_report.get(key, '')
+                                   for key in ('raw_mcr', 'raw_mrr', 'raw_connect')])
+    if parsed != carrier_report:
+        return None
+    return dict(carrier_report)
+
+
 def rss_bytes(pids):
     """Sample parent and encoder RSS, with no optional Python dependency."""
     if sys.platform != 'win32':
@@ -175,7 +196,7 @@ def hardware(args, app):
     report = {'mode': args.mode, 'errors': [], 'stations': {}, 'seconds': args.seconds,
               'received': {'1': {1: 0, 2: 0}, '2': {1: 0, 2: 0}},
               'decoded': {'1': {'audio_bytes':0, 'video_frames':0}, '2': {'audio_bytes':0, 'video_frames':0}},
-              'rates': {}, 'cleanup': {}}
+              'rates': {}, 'inband_rates': {}, 'carrier_reports': {}, 'bearers': {}, 'cleanup': {}}
     events = deque(maxlen=2000)
     root = args.output.parent / (args.output.stem+'-diagnostics')
     controllers = []
@@ -200,9 +221,16 @@ def hardware(args, app):
                 report['received'][label][int(value['lcn'])] += 1
             else:
                 events.append({'station': label, **value})
-            if value['event'] == 'telemetry' and value.get('rate') is not None:
-                report['rates'][label] = value['rate']
-            elif value['event'] == 'cleanup':
+            if value['event'] in ('telemetry', 'cleanup'):
+                if 'rate' in value:
+                    report['inband_rates'][label] = value['rate']
+                if value.get('carrier_report') is not None:
+                    report['carrier_reports'][label] = value['carrier_report']
+                evidence = accepted_bearer(report['inband_rates'].get(label),
+                                            report['carrier_reports'].get(label))
+                report['bearers'][label] = evidence
+                report['rates'][label] = evidence['tx_bps'] if evidence else None
+            if value['event'] == 'cleanup':
                 report['cleanup'][label] = value
         controller.event_received.connect(event)
         def audio(data, label=label):
@@ -269,6 +297,7 @@ def hardware(args, app):
                         and all(count > 0 for channels in report['received'].values() for count in channels.values())
                         and all(count > 0 for channels in report['decoded'].values() for count in channels.values())
                         and all(report['rates'].get(label) == 14400 for label in ('1','2'))
+                        and all(report['bearers'].get(label) is not None for label in ('1','2'))
                         and all(report['cleanup'].get(label, {}).get('cleanup_ok') is True for label in ('1','2')))
     report['elapsed_seconds'] = time.monotonic()-started
     return report
