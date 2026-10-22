@@ -50,6 +50,14 @@ def main() -> int:
                               "stdout": result.stdout[-4000:], "stderr": result.stderr[-4000:]}))
             if result.returncode:
                 raise RuntimeError(f"Native smoke failed: {Path(argv[0]).name}")
+            if argv[1:] == ["--self-test"]:
+                report = json.loads(result.stdout.strip().splitlines()[-1])
+                if report.get("helper") is not True or report.get("asset") is not True:
+                    raise RuntimeError("Native helper is missing its packaged application asset")
+            elif argv[1:] == ["worker", "--self-test"]:
+                report = json.loads(result.stdout.strip().splitlines()[-1])
+                if report.get("ready") is not True or report.get("protocol_version") != 1:
+                    raise RuntimeError("Native worker/schema initialization failed")
         print("Native GUI/helper relocated smoke passed; no modem or capture device opened.")
     return 0
 
