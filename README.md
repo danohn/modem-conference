@@ -25,6 +25,15 @@ FFprobe. Use **Options → Dependencies** to configure explicit executable paths
 or use PATH. A suitable build must encode H.263, G.723.1, MPEG-4, AAC and PNG,
 and decode H.263 and G.723.1. No libx264 encoder is required.
 
+On macOS, the Python-installed launcher creates a small per-user **Modem
+Conference.app** and starts through it automatically. This supplies the
+camera/microphone usage descriptions required for normal macOS permission
+prompts. It copies the selected Python executable and references the current
+Python installation; it does not modify Python's global bundle or system
+privacy settings. Recreate it with `modem-conference --install-macos-launcher`
+after moving a virtual environment. Native release apps already provide their
+own bundle. See [Qt's permission requirements](https://doc.qt.io/qt-6/permissions.html).
+
 - macOS: `brew install ffmpeg`
 - Ubuntu: `sudo apt install ffmpeg`
 - Windows: obtain an FFmpeg build linked from [ffmpeg.org](https://ffmpeg.org/download.html)

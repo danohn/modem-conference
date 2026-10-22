@@ -75,6 +75,15 @@ class DeviceSelection:
         save_settings(stored)
 
     def capture(self, transmit):
+        import sys
+        if sys.platform == 'darwin':
+            from .macos_launcher import has_usage_descriptions
+            if not has_usage_descriptions():
+                self.owner.window.show_error('macOS camera capture requires an application bundle. '
+                    'Use the native Modem Conference.app, or run '
+                    'modem-conference --install-macos-launcher and open the generated app. '
+                    'This supplies usage descriptions for the normal macOS permission prompt.')
+                return
         camera, microphone, _ = self.selected()
         if camera is None or transmit and microphone is None:
             self.dialog()

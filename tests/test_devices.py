@@ -7,6 +7,11 @@ from PySide6.QtCore import QCameraPermission, QMicrophonePermission, QObject, Qt
 from modem_conference import devices
 
 
+@pytest.fixture(autouse=True)
+def bundled_permission_context(monkeypatch):
+    monkeypatch.setattr('modem_conference.macos_launcher.has_usage_descriptions', lambda: True)
+
+
 @pytest.mark.parametrize('transmit,permission_count', [(False,1), (True,2)])
 def test_permission_callback_has_qobject_context_and_only_starts_after_grants(monkeypatch, transmit, permission_count):
     errors, starts, prompts = [], [], []

@@ -4,6 +4,14 @@ Run from a development environment with the client and library installed. The
 script does not assume port names, phone numbers, local network equipment, or
 particular camera/microphone identifiers.
 
+For actual macOS camera capture, run the script through the source-install app
+bundle so the OS sees the camera/microphone usage descriptions. First run
+`modem-conference --install-macos-launcher`, then invoke the printed app's
+`Contents/MacOS/modem-conference --python scripts/manual_acceptance.py ...`.
+The `--python` switch is a developer entry point in this generated launcher;
+it preserves that Python environment and normal macOS authorization prompts.
+Bare Python is suitable for the synthetic stress test, which opens no devices.
+
 ```sh
 # Continuous real FFmpeg encoding with generated RGB/PCM, no OS devices opened:
 uv run --no-sync scripts/manual_acceptance.py --mode stress --seconds 600 --output /tmp/encoder-stress.json
@@ -29,8 +37,8 @@ with `python -m modem_conference.helper prepare INPUT_FILE OUTPUT_BUNDLE`.
 
 The stress report records whole-picture video admission, audio continuity after
 an intentional encoder restart, bounded input/parser buffers, encoder child
-counts, and peak **Python heap**. It does not measure native-process RSS, open
-camera/microphone hardware, or prove modem control transport. The hardware modes
+counts, peak **Python heap**, and sampled combined parent/encoder **RSS**. It
+does not open camera/microphone hardware or prove modem control transport. The hardware modes
 require media received on both channels at both stations, and clean worker and
 capture shutdown. They save counts and diagnostics, with no encoded call recording.
 

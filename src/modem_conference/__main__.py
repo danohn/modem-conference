@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 from pathlib import Path
 import signal
 import sys
@@ -26,7 +27,20 @@ def main(argv=None):
     parser.add_argument('--logs', type=Path, help='application diagnostics directory')
     parser.add_argument('--capture', action='store_true', help='opt in to recording received encoded media')
     parser.add_argument('--smoke-test', action='store_true', help='show UI briefly and exit without opening devices')
+    parser.add_argument('--install-macos-launcher', action='store_true',
+                        help='create a source-install .app with camera/microphone usage descriptions')
     args = parser.parse_args(argv)
+    if args.install_macos_launcher:
+        if sys.platform != 'darwin':
+            parser.error('--install-macos-launcher is only applicable to macOS.')
+        from .macos_launcher import create
+        print(create())
+        return 0
+    if sys.platform == 'darwin' and not args.smoke_test:
+        from .macos_launcher import create, has_usage_descriptions
+        if not has_usage_descriptions():
+            launcher = create() / 'Contents/MacOS/modem-conference'
+            os.execv(str(launcher), [str(launcher), *(sys.argv[1:] if argv is None else argv)])
     if args.pair and args.port and args.port == args.second_port:
         parser.error('Each station requires a different modem port.')
     app = QApplication.instance() or QApplication(sys.argv[:1])
