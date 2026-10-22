@@ -7,6 +7,28 @@ release CI and native release downloads resolve the pinned dependency from PyPI.
 Current platform and physical-device evidence is tracked in
 [validation.md](validation.md).
 
+## Supported Python runtimes
+
+Source installations use **Python 3.11–3.14 on macOS and Windows**, and
+**Python 3.12–3.14 on Linux**, with Qt/PySide 6.12 on every supported platform.
+The Linux PySide6 6.12.0 wheel loses boolean references during signal emission
+on Python 3.11; the isolated [diagnostic reproducer](https://github.com/danohn/modem-conference/actions/runs/39725773187)
+records the resulting interpreter shutdown failure. Client launchers reject
+that unsupported combination before importing Qt and explain how to use a
+supported interpreter. An older Qt release is not selected automatically.
+
+Python package metadata retains `Requires-Python >=3.11` because it cannot express
+this operating-system-specific minimum. Installation on Linux Python 3.11 can
+therefore complete; client execution is deliberately refused. The independent
+`h324` library still supports Python 3.11–3.14 on all three operating systems.
+
+Normal client CI runs eleven supported OS/Python combinations. A separate
+Linux Python 3.11 installed-wheel check verifies the rejection message before
+any Qt import, package resources and continued headless `h324` use. It does not
+run GUI tests on that unsupported runtime. Core CI retains all twelve
+OS/Python combinations. Native downloads continue to bundle Python 3.14 and
+Qt 6.12, so they do not depend on the receiving machine's Python installation.
+
 ## Publishing setup
 
 Configure protected GitHub environments `testpypi`, `pypi` and `release`, requiring

@@ -31,6 +31,13 @@ archive and keep its helper executable and shared libraries together. Native
 downloads include Python and Qt; Python and `uv` are not installation
 requirements.
 
+For source installations, use Python 3.11–3.14 on macOS/Windows or Python
+3.12–3.14 on Linux. Qt 6.12 is used throughout. Linux Python 3.11 client
+launchers exit with upgrade guidance before importing Qt because of a confirmed
+upstream signal-reference defect. The independent `h324` library retains Python
+3.11 support on Linux. Package installation alone does not establish that the
+client runtime is supported; see the [runtime policy](https://github.com/danohn/modem-conference/blob/main/docs/release.md#supported-python-runtimes).
+
 The external **FFmpeg and ffprobe executables are required for media processing**
 and are not bundled. Select them in settings or install them on PATH, then check
 the dependency-status dialog for required codecs. Qt Multimedia's own runtime

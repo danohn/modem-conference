@@ -29,6 +29,9 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2022]
         python: ['3.11', '3.12', '3.13', '3.14']
+        exclude:
+          - os: ubuntu-24.04
+            python: '3.11'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     defaults:
@@ -89,3 +92,38 @@ jobs:
           name: python-distributions
           path: dist/*
           if-no-files-found: error
+  unsupported-linux-python:
+    name: Linux Python 3.11 rejection before Qt imports
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the client distribution
+        run: uv build --out-dir dist
+      - uses: actions/checkout@v4
+        if: inputs.released_core != true
+        with:
+          repository: danohn/h324
+          ref: ${{ inputs.core_ref || 'main' }}
+          path: _core
+      - name: Build explicit development core dependency
+        if: inputs.released_core != true
+        run: uv build --project _core --out-dir "$RUNNER_TEMP/core-dist"
+      - name: Install the declared dependencies outside the checkouts
+        run: |
+          uv venv "$RUNNER_TEMP/unsupported client venv" --python 3.11
+          if [ '${{ inputs.released_core }}' != 'true' ]; then
+            uv pip install --python "$RUNNER_TEMP/unsupported client venv" "$RUNNER_TEMP"/core-dist/*.whl dist/*.whl
+          else
+            uv pip install --python "$RUNNER_TEMP/unsupported client venv" dist/*.whl
+          fi
+      - name: Verify launcher guidance, resources and headless library access
+        working-directory: ${{ runner.temp }}
+        run: uv run --no-project --python "$RUNNER_TEMP/unsupported client venv" python "$GITHUB_WORKSPACE/scripts/unsupported_linux_check.py" --checkout "$GITHUB_WORKSPACE"
