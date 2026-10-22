@@ -12,26 +12,8 @@ from PySide6.QtMultimedia import (QAudioFormat, QAudioSource, QCamera,
                                  QMediaCaptureSession, QVideoSink)
 
 from .dependencies import binary
+from h324.media import AviPictureParser
 
-
-class PictureParser:
-    def __init__(self, limit=8192):
-        self.data = bytearray()
-        self.limit = limit
-
-    def feed(self, data):
-        self.data.extend(data)
-        if len(self.data) > self.limit:
-            self.data.clear()
-            raise ValueError("Encoded video picture exceeds bounded capture buffer")
-        starts = [i for i in range(len(self.data)-2)
-                  if self.data[i:i+2] == b"\0\0" and self.data[i+2] & 0xfc == 0x80]
-        if starts and starts[0] != 0:
-            raise ValueError("Encoder did not produce baseline H.263")
-        result = [bytes(self.data[a:b]) for a, b in zip(starts, starts[1:])]
-        if len(starts) > 1:
-            del self.data[:starts[-1]]
-        return result
 
 
 class VideoBudget:
@@ -57,6 +39,7 @@ class Capture(QObject):
     status = Signal(str)
     stopped = Signal()
     audio_state = Signal(str)
+    video_state = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -65,7 +48,7 @@ class Capture(QObject):
         self.session = None
         self.audio_io = None
         self.encoders = {}
-        self.video_parser = PictureParser()
+        self.video_parser = AviPictureParser()
         self.audio_bytes = bytearray()
         self.budget = VideoBudget()
         self.sending = False
@@ -75,6 +58,7 @@ class Capture(QObject):
         self.video_paused_until = 0.
         self.audio_index = 0
         self.active = False
+        self._video_paused = False
         self._generation = 0
 
     def start(self, camera_device, audio_device, *, transmit=False):
@@ -135,12 +119,12 @@ class Capture(QObject):
         process.start()
 
     def _video_encoder(self):
-        self.video_parser = PictureParser()
+        self.video_parser = AviPictureParser()
         self._encoder(2, ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "128x96", "-r", "2",
                           "-i", "pipe:0", "-an", "-c:v", "h263", "-pix_fmt", "yuv420p",
                           "-b:v", "3500", "-maxrate", "4800", "-bufsize", "4800",
                           "-qmin", "12", "-qmax", "31", "-g", "12", "-threads", "1",
-                          "-f", "h263", "-flush_packets", "1", "pipe:1"])
+                          "-tag:v", "H263", "-f", "avi", "-flush_packets", "1", "pipe:1"])
 
     def _frame(self, frame, generation=None):
         if not self.active or generation is not None and generation != self._generation or not frame.isValid():
@@ -196,6 +180,9 @@ class Capture(QObject):
                     if not self.budget.admit(len(picture), time.monotonic()):
                         self.pause_video("Picture exceeds dial-up budget; video paused, audio continues")
                         break
+                    if self._video_paused:
+                        self._video_paused = False
+                        self.video_state.emit('resumed')
                     self.chunk.emit(dict(lcn=2, payload=picture,
                                          timestamp_ms=round((time.monotonic()-self.started_at)*1000), duration_ms=500))
             except ValueError as exc:
@@ -221,13 +208,15 @@ class Capture(QObject):
 
     def pause_video(self, message="Video congested; waiting for a fresh picture"):
         self.video_paused_until = time.monotonic()+2
+        self._video_paused = True
+        self.video_state.emit('paused')
         self.status.emit(message)
         process = self.encoders.pop(2, None)
         if process:
             process.closeWriteChannel()
             process.terminate()
             QTimer.singleShot(500, process, process.kill)
-        self.video_parser = PictureParser()
+        self.video_parser = AviPictureParser()
 
     def reset_video(self):
         self.video_paused_until = time.monotonic()
@@ -238,6 +227,8 @@ class Capture(QObject):
 
     def stop(self):
         self.active = self.sending = self.paused = False
+        self._video_paused = False
+        self.video_state.emit('stopped')
         self._generation += 1
         if self.camera:
             self.camera.stop()
@@ -254,4 +245,5 @@ class Capture(QObject):
             QTimer.singleShot(500, process, process.kill)
         self.encoders.clear()
         self.audio_bytes.clear()
+        self.video_parser.reset()
         self.stopped.emit()

@@ -170,3 +170,20 @@ def test_preview_caption_tracks_runtime_transmission_and_pause(window):
     assert window.outgoing_label.text() == 'Paused'
     window.set_telemetry({'media_transmitting': False, 'paused': False})
     assert window.outgoing_label.text() == 'Ready to transmit'
+
+
+def test_camera_video_pause_is_visible_across_telemetry_until_new_picture(window):
+    window.source_combo.setCurrentIndex(1)
+    window.set_state('connected')
+    window.set_telemetry({'transmitting':True})
+    window.set_capture_video_state('paused')
+    assert window.outgoing_label.text() == 'Video paused; audio continues'
+    window.set_telemetry({'rate':14400, 'media_position_ms':5000, 'media_duration_ms':0})
+    assert window.outgoing_label.text() == 'Video paused; audio continues'
+    assert window.movie_details.text() == 'Video paused; audio continues'
+    window.set_capture_video_state('resumed')
+    assert 'Video paused' not in window.outgoing_label.text()
+    assert 'Video paused' not in window.movie_details.text()
+    window.set_capture_video_state('paused')
+    window.set_state('idle')
+    assert window._capture_video_state == 'stopped'

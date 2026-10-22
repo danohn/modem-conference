@@ -246,7 +246,7 @@ def stress(args, app):
         report['max_encoder_children'] = max(report['max_encoder_children'], len(children))
         report['max_pending_input_bytes'] = max(report['max_pending_input_bytes'],
                                                 sum(p.bytesToWrite() for p in capture.encoders.values()))
-        report['max_encoded_parser_bytes'] = max(report['max_encoded_parser_bytes'], len(capture.video_parser.data))
+        report['max_encoded_parser_bytes'] = max(report['max_encoded_parser_bytes'], capture.video_parser.buffered_bytes)
         if now-last_rss >= 5:
             last_rss = now
             rss = rss_bytes([os.getpid(), *[int(p.processId()) for p in capture.encoders.values() if p.processId()]])

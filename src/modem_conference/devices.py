@@ -172,7 +172,7 @@ def dependencies_dialog(window):
         fields[name] = edit
         form.addRow(name, edit)
     layout.addLayout(form)
-    status = QLabel("Install an FFmpeg build with H.263, G.723.1, MPEG-4, AAC and PNG.\n"
+    status = QLabel("Install an FFmpeg build with H.263, G.723.1, MPEG-4, AAC, PNG and the AVI muxer.\n"
                     "macOS: brew install ffmpeg\nUbuntu: sudo apt install ffmpeg\n"
                     "Windows: download an FFmpeg build from ffmpeg.org and add its bin directory to PATH.")
     status.setWordWrap(True); layout.addWidget(status)

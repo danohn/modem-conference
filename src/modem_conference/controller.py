@@ -64,6 +64,7 @@ class StationController(QObject):
         self.capture.chunk.connect(self.live_chunk)
         self.capture.error.connect(self.capture_error)
         self.capture.status.connect(window.append_log)
+        self.capture.video_state.connect(window.set_capture_video_state)
         self.devices = DeviceSelection(self)
         self.raw_capture = False
         window.preview_requested.connect(self.preview_capture)

@@ -130,6 +130,7 @@ class StationWindow(QMainWindow):
         self._state = 'idle'
         self._preparing = False
         self._capture_pending = False
+        self._capture_video_state = 'stopped'
         self._dependencies_ready = True
         self._movie = None
         self._telemetry = {}
@@ -405,6 +406,7 @@ class StationWindow(QMainWindow):
             'error': 'Connection stopped. See Connection information for details.',
         }.get(self._state, self._state.replace('_', ' ').capitalize()))
         if self._state in {'idle', 'error'}:
+            self._capture_video_state = 'stopped'
             self._transmitting = self._paused = False
             self.rate_label.setText('— bps')
             self.time_label.setText('00:00:00')
@@ -448,6 +450,10 @@ class StationWindow(QMainWindow):
             self.outgoing_label.setText('Paused' if self._paused else
                                         f'Sending to {self.number_edit.text().strip()}'
                                         if self._transmitting else 'Ready to transmit')
+        if (self.source_combo.currentData() == 'camera' and self._transmitting
+                and not self._paused and self._capture_video_state == 'paused'):
+            self.outgoing_label.setText('Video paused; audio continues')
+            self.movie_details.setText('Video paused; audio continues')
 
     @Slot(dict)
     def set_telemetry(self, values: dict):
@@ -612,6 +618,7 @@ class StationWindow(QMainWindow):
         super().closeEvent(event)
 
     def _source_changed(self):
+        self._capture_video_state = 'stopped'
         source = self.source_combo.currentData()
         self.source_changed.emit(source)
         if source == 'camera':
@@ -626,4 +633,10 @@ class StationWindow(QMainWindow):
 
     def set_capture_pending(self, pending):
         self._capture_pending = bool(pending)
+        self._sync_controls()
+
+    def set_capture_video_state(self, state):
+        self._capture_video_state = state
+        if state != 'paused' and self.source_combo.currentData() == 'camera':
+            self.movie_details.setText('Camera + microphone · ' + ('Transmitting' if self._transmitting else 'Ready'))
         self._sync_controls()

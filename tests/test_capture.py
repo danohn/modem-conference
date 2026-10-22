@@ -10,19 +10,15 @@ import pytest
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QProcess
 
-from modem_conference.capture import Capture, PictureParser, VideoBudget
+from modem_conference.capture import Capture, VideoBudget
 
 
-def test_picture_parser_keeps_last_picture_until_next_start():
-    parser = PictureParser()
-    first, second = b'\0\0\x80abc', b'\0\0\x81def'
-    assert parser.feed(first[:2]) == []
-    assert parser.feed(first[2:]+second[:2]) == []
-    assert parser.feed(second[2:]) == [first]
-    assert bytes(parser.data) == second
-    with pytest.raises(ValueError):
-        parser.feed(b'x'*8192)
-    assert not parser.data
+def test_stopping_capture_discards_partial_local_container_state():
+    capture = Capture()
+    assert capture.video_parser.feed(b'RIFF') == []
+    assert capture.video_parser.buffered_bytes == 4
+    capture.stop()
+    assert capture.video_parser.buffered_bytes == 0
 
 
 def test_high_motion_whole_picture_rejected_then_low_motion_recovers():
@@ -99,6 +95,60 @@ def test_retired_camera_error_and_frame_signals_do_not_affect_new_preview(monkey
     capture.camera.errorOccurred.emit(None, 'current camera error')
     assert errors == ['current camera error']
     assert not capture.active
+
+
+def test_video_pause_clears_only_after_an_admitted_picture_then_stop():
+    capture = Capture()
+    states = []
+    capture.video_state.connect(states.append)
+    capture.active = True
+    capture.pause_video()
+    assert states == ['paused']
+    capture.reset_video()
+    assert states == ['paused']  # Deadline reset alone is not an actual picture.
+    process = SimpleNamespace(readAllStandardOutput=lambda: b'encoded')
+    capture.video_parser = SimpleNamespace(feed=lambda data:[b'picture'], reset=lambda:None)
+    capture.encoders[2] = process
+    capture._encoded(2, process, capture._generation)
+    assert states == ['paused','resumed']
+    capture.encoders.clear()
+    capture.stop()
+    assert states[-1] == 'stopped'
+
+
+@pytest.mark.skipif(not shutil.which('ffmpeg'), reason='FFmpeg required')
+def test_first_encoded_picture_is_delivered_without_another_frame_or_eof():
+    app = QApplication.instance() or QApplication([])
+    capture = Capture()
+    capture.active = capture.sending = True
+    capture.started_at = time.monotonic()
+    chunks, errors = [], []
+    capture.chunk.connect(chunks.append)
+    capture.error.connect(errors.append)
+    capture._video_encoder()
+    deadline = time.monotonic()+5
+    try:
+        encoder = capture.encoders[2]
+        while encoder.state() != QProcess.ProcessState.Running:
+            app.processEvents(); time.sleep(.005)
+            assert time.monotonic() < deadline
+        encoder.write(bytes([64,96,128])*(128*96))
+        # The old elementary-picture parser could never pass this assertion:
+        # it withheld this picture until another picture start or stream EOF.
+        while not chunks:
+            app.processEvents(); time.sleep(.005)
+            assert time.monotonic() < deadline, errors
+        assert len(chunks) == 1
+        assert chunks[0]['lcn'] == 2
+        assert chunks[0]['payload'][:2] == b'\0\0'
+        assert not chunks[0]['payload'].startswith(b'RIFF')
+        assert encoder.state() == QProcess.ProcessState.Running
+        assert not errors
+    finally:
+        capture.stop()
+        end = time.monotonic()+.7
+        while time.monotonic()<end:
+            app.processEvents(); time.sleep(.005)
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'), reason='FFmpeg required')
