@@ -147,9 +147,13 @@ raise SystemExit(media.main())
     process = subprocess.Popen([sys.executable, '-c', wrapper], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         deadline = time.monotonic() + 5
-        while not marker.exists() and time.monotonic() < deadline:
+        while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
             time.sleep(.01)
-        assert marker.exists(), 'stand-in converter did not start'
+        if not marker.exists():
+            process.kill()
+            stdout, stderr = process.communicate(timeout=5)
+            pytest.fail(f'Stand-in converter did not start: return={process.returncode}; '
+                        f'stdout={stdout!r}; stderr={stderr!r}')
         child_pid = int(marker.read_text())
         process.stdin.write(b'cancel\n')
         process.stdin.flush()
@@ -158,8 +162,23 @@ raise SystemExit(media.main())
         assert stdout == b''
         assert b'cancelled' in stderr
         assert not list(tmp_path.glob('active-*'))
-        with pytest.raises(ProcessLookupError):
-            os.kill(child_pid, 0)
+        if sys.platform == 'win32':
+            import ctypes
+            from ctypes import wintypes
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel.OpenProcess.restype = wintypes.HANDLE
+            handle = kernel.OpenProcess(0x00100000, False, child_pid)
+            if handle:
+                kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+                kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+                try:
+                    assert kernel.WaitForSingleObject(handle, 0) == 0
+                finally:
+                    kernel.CloseHandle(handle)
+        else:
+            with pytest.raises(ProcessLookupError):
+                os.kill(child_pid, 0)
     finally:
         if process.poll() is None:
             process.kill()
