@@ -8,7 +8,7 @@ Reports contain counts and diagnostics, never received media recordings.
 from __future__ import annotations
 
 import argparse
-from collections import deque
+from collections import Counter, deque
 import json
 import os
 from pathlib import Path
@@ -46,6 +46,50 @@ def accepted_bearer(inband_rate, carrier_report):
     if parsed != carrier_report:
         return None
     return dict(carrier_report)
+
+
+class CaptureMetrics:
+    """Counters and bounded diagnostic history, without retaining media."""
+    def __init__(self):
+        self.preview_frames = 0
+        self.outgoing_frames = {1: 0, 2: 0}
+        self.outgoing_bytes = {1: 0, 2: 0}
+        self.status_counts = Counter()
+        self.status_history = deque(maxlen=100)
+        self.overload_status_count = 0
+        self.worker_video_overloads = 0
+        self.started_at = None
+        self.ended_at = None
+
+    def preview(self, _image):
+        self.preview_frames += 1
+
+    def outgoing(self, chunk, started_at):
+        self.started_at = self.started_at if self.started_at is not None else started_at
+        channel = int(chunk['lcn'])
+        self.outgoing_frames[channel] += 1
+        self.outgoing_bytes[channel] += len(chunk['payload'])
+
+    def status(self, message):
+        text = str(message)[:500]
+        key = text if text in self.status_counts or len(self.status_counts) < 32 else '[other statuses]'
+        self.status_counts[key] += 1
+        self.status_history.append(text)
+        if any(word in text.lower() for word in ('overload', 'budget', 'congest')):
+            self.overload_status_count += 1
+
+    def snapshot(self):
+        return {'audio_frames':self.outgoing_frames[1], 'video_pictures':self.outgoing_frames[2]}
+
+    def summary(self):
+        duration = max(0., self.ended_at-self.started_at) if self.ended_at is not None and self.started_at is not None else 0.
+        expected = int(duration*1000/30)
+        return {'preview_frames':self.preview_frames, 'outgoing_frames':dict(self.outgoing_frames),
+                'outgoing_bytes':dict(self.outgoing_bytes), 'status_counts':dict(self.status_counts),
+                'status_history':list(self.status_history), 'overload_status_count':self.overload_status_count,
+                'worker_video_overloads':self.worker_video_overloads, 'capture_duration_seconds':duration,
+                'expected_audio_frames':expected,
+                'audio_output_ratio':self.outgoing_frames[1]/max(1, expected)}
 
 
 def rss_bytes(pids):
@@ -189,6 +233,8 @@ def hardware(args, app):
     if args.caller_port == args.answerer_port:
         raise ValueError('The stations need separate serial ports.')
     modes = args.mode.split('/')
+    if args.exercise_video_overload and 'camera' not in modes:
+        raise ValueError('--exercise-video-overload requires at least one camera source.')
     bundles = [args.bundle1, args.bundle2]
     for mode, bundle in zip(modes, bundles):
         if mode == 'file' and not bundle:
@@ -196,7 +242,10 @@ def hardware(args, app):
     report = {'mode': args.mode, 'errors': [], 'stations': {}, 'seconds': args.seconds,
               'received': {'1': {1: 0, 2: 0}, '2': {1: 0, 2: 0}},
               'decoded': {'1': {'audio_bytes':0, 'video_frames':0}, '2': {'audio_bytes':0, 'video_frames':0}},
-              'rates': {}, 'inband_rates': {}, 'carrier_reports': {}, 'bearers': {}, 'cleanup': {}}
+              'rates': {}, 'inband_rates': {}, 'carrier_reports': {}, 'bearers': {}, 'cleanup': {},
+              'capture': {}, 'forced_video_probes': {}, 'peak_combined_rss_bytes':0}
+    capture_metrics = {label:CaptureMetrics() for label in ('1','2')}
+    rss_history = deque(maxlen=200)
     events = deque(maxlen=2000)
     root = args.output.parent / (args.output.stem+'-diagnostics')
     controllers = []
@@ -232,6 +281,8 @@ def hardware(args, app):
                 report['rates'][label] = evidence['tx_bps'] if evidence else None
             if value['event'] == 'cleanup':
                 report['cleanup'][label] = value
+            elif value['event'] == 'video_overload':
+                capture_metrics[label].worker_video_overloads += 1
         controller.event_received.connect(event)
         def audio(data, label=label):
             report['decoded'][label]['audio_bytes'] += len(data)
@@ -239,20 +290,26 @@ def hardware(args, app):
             report['decoded'][label]['video_frames'] += 1
         controller.playback.audio_decoded.connect(audio)
         controller.playback.video_frame.connect(video)
+        metrics = capture_metrics[label]
+        controller.capture.frame.connect(metrics.preview)
+        controller.capture.status.connect(metrics.status)
+        controller.capture.chunk.connect(lambda chunk, c=controller, m=metrics: m.outgoing(chunk, c.capture.started_at))
         controllers.append(controller); windows.append(window)
         window.show()
     started = time.monotonic()
     transmitting = None
     closing = False
     completed_duration = False
+    last_rss = 0.
     def close():
         nonlocal closing
         if not closing:
             closing = True
             for controller in controllers:
+                capture_metrics[controller.station].ended_at = time.monotonic()
                 controller.shutdown()
     def tick():
-        nonlocal transmitting, completed_duration
+        nonlocal transmitting, completed_duration, last_rss
         now = time.monotonic()
         if closing:
             if all(c._closed for c in controllers):
@@ -266,6 +323,28 @@ def hardware(args, app):
             transmitting = now
             for controller in controllers:
                 controller.send_movie()
+        if now-last_rss >= 5:
+            last_rss = now
+            pids = {os.getpid()}
+            for c in controllers:
+                processes = [c.process, c.preparer, *c.capture.encoders.values(), *c.playback._processes.values()]
+                pids.update(int(p.processId()) for p in processes if p.processId())
+            rss = rss_bytes(sorted(pids))
+            rss_history.append({'elapsed':round(now-started, 1), 'combined_rss_bytes':rss})
+            report['peak_combined_rss_bytes'] = max(report['peak_combined_rss_bytes'], rss or 0)
+        if args.exercise_video_overload and transmitting is not None and now-transmitting >= 10:
+            for c in controllers:
+                label = c.station
+                metrics = capture_metrics[label]
+                probe = report['forced_video_probes'].get(label)
+                if c.capture.sending and probe is None:
+                    report['forced_video_probes'][label] = {
+                        'forced':True, 'elapsed':now-transmitting, 'before':metrics.snapshot()}
+                    c.capture.pause_video('Forced acceptance video overload probe; audio must continue')
+                elif probe is not None and 'after' not in probe and now-transmitting >= probe['elapsed']+5:
+                    probe['after'] = metrics.snapshot()
+                    probe['audio_continued'] = probe['after']['audio_frames'] > probe['before']['audio_frames']
+                    probe['video_recovered'] = probe['after']['video_pictures'] > probe['before']['video_pictures']
         if transmitting is not None and now-transmitting >= args.seconds:
             completed_duration = True
             close()
@@ -290,7 +369,9 @@ def hardware(args, app):
     for c in controllers:
         report['stations'][c.station] = {'closed':c._closed, 'state':c.state,
                                          'capture_active':c.capture.active}
+        report['capture'][c.station] = capture_metrics[c.station].summary()
     report['events'] = list(events)
+    report['rss_samples'] = list(rss_history)
     report['completed_duration'] = completed_duration
     report['passed'] = (completed_duration and not report['errors']
                         and all(c._closed and not c.capture.active for c in controllers)
@@ -298,6 +379,12 @@ def hardware(args, app):
                         and all(count > 0 for channels in report['decoded'].values() for count in channels.values())
                         and all(report['rates'].get(label) == 14400 for label in ('1','2'))
                         and all(report['bearers'].get(label) is not None for label in ('1','2'))
+                        and all(report['capture'][str(index+1)]['audio_output_ratio'] >= .90
+                                for index, mode in enumerate(modes) if mode == 'camera')
+                        and (not args.exercise_video_overload or
+                             all(report['forced_video_probes'].get(str(index+1), {}).get('audio_continued')
+                                 and report['forced_video_probes'].get(str(index+1), {}).get('video_recovered')
+                                 for index, mode in enumerate(modes) if mode == 'camera'))
                         and all(report['cleanup'].get(label, {}).get('cleanup_ok') is True for label in ('1','2')))
     report['elapsed_seconds'] = time.monotonic()-started
     return report
@@ -307,6 +394,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=('file/file','file/camera','camera/camera','stress'), default='stress')
     parser.add_argument('--seconds', type=float, default=600)
+    parser.add_argument('--exercise-video-overload', action='store_true',
+                        help='force one labeled camera-video pause after 10 seconds and require audio continuity/video recovery')
     parser.add_argument('--caller-port'); parser.add_argument('--answerer-port'); parser.add_argument('--number')
     parser.add_argument('--bundle1', type=Path); parser.add_argument('--bundle2', type=Path)
     for index in (1, 2):
@@ -316,6 +405,8 @@ def main():
     args = parser.parse_args()
     if args.seconds <= 5:
         parser.error('--seconds must exceed 5 to exercise recovery')
+    if args.exercise_video_overload and args.seconds < 20:
+        parser.error('--exercise-video-overload requires at least 20 seconds.')
     app = QApplication([]); app.setQuitOnLastWindowClosed(False); apply_theme(app)
     try:
         report = stress(args, app) if args.mode == 'stress' else hardware(args, app)

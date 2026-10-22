@@ -1,4 +1,4 @@
-from modem_conference.acceptance import accepted_bearer
+from modem_conference.acceptance import accepted_bearer, CaptureMetrics
 
 
 def carrier_report():
@@ -20,3 +20,21 @@ def test_configured_rates_or_inconsistent_carrier_reports_cannot_pass():
                     {'raw_connect':'CONNECT 9600'}, {'raw_mrr':'+MRR: 14400,0'},
                     {'raw_mcr':'+MCR: V34'}, {'raw_connect':''}):
         assert accepted_bearer(None, {**carrier_report(), **changes}) is None
+
+
+def test_capture_metrics_count_without_retaining_frames_or_unbounded_statuses():
+    metrics = CaptureMetrics()
+    metrics.preview(object())
+    metrics.outgoing({'lcn':1, 'payload':b'x'*24}, 10.)
+    metrics.outgoing({'lcn':2, 'payload':b'picture'}, 10.)
+    for index in range(1000):
+        metrics.status(f'video overload detail {index}')
+    metrics.ended_at = 10.03
+    report = metrics.summary()
+    assert report['preview_frames'] == 1
+    assert report['outgoing_frames'] == {1:1,2:1}
+    assert report['outgoing_bytes'] == {1:24,2:7}
+    assert report['overload_status_count'] == 1000
+    assert len(report['status_history']) == 100
+    assert len(report['status_counts']) <= 33
+    assert report['audio_output_ratio'] >= 1.

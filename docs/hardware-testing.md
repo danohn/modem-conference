@@ -49,12 +49,23 @@ hex-encoded Qt device IDs; use the application's Devices dialog for ordinary
 manual selection. Prepare file bundles by opening files in the application, or
 with `python -m modem_conference.helper prepare INPUT_FILE OUTPUT_BUNDLE`.
 
+Add `--exercise-video-overload` to a camera hardware test of at least 20
+seconds. At ten seconds the tool deliberately pauses each active camera encoder
+once, labels the event as a **forced acceptance probe**, and checks five seconds
+later that audio continued and complete video pictures resumed. This exercises
+restart/recovery; the separate high-motion synthetic test measures natural
+bandwidth rejection.
+
 The stress report records whole-picture video admission, audio continuity after
 an intentional encoder restart, bounded input/parser buffers, encoder child
 counts, peak **Python heap**, and sampled combined parent/encoder **RSS**. It
 does not open camera/microphone hardware or prove modem control transport. The hardware modes
 require media received on both channels at both stations, and clean worker and
 capture shutdown. They save counts and diagnostics, with no encoded call recording.
+Camera reports also require at least 90% of the expected 30 ms audio frames
+over the capture interval. They record local preview counts, outgoing encoded
+frame/picture and byte counts, bounded capture-status histories, local and
+worker video-overload counters, and sampled parent/worker/encoder/decoder RSS.
 
 Bearer acceptance records both the raw V.80 in-band rate and the separately
 validated carrier report. It accepts 14,400 bps from either explicit in-band
