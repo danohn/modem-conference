@@ -18,7 +18,9 @@ class DeviceSelection:
     def __init__(self, owner):
         self.owner = owner
         self.media = QMediaDevices(owner)
-        self.values = load_settings()
+        stored = load_settings()
+        self.values = {key: stored.get(f'{key}_{owner.station}', '')
+                       for key in ('camera', 'microphone', 'speakers')}
         self.media.videoInputsChanged.connect(self.changed)
         self.media.audioInputsChanged.connect(self.changed)
         self.media.audioOutputsChanged.connect(self.changed)
@@ -41,6 +43,9 @@ class DeviceSelection:
             self.owner.window.append_log("Selected speakers were removed; received audio muted.")
 
     def dialog(self):
+        if self.owner.capture.sending:
+            self.owner.window.show_error('Stop transmission before changing capture devices.')
+            return
         dialog = QDialog(self.owner.window)
         dialog.setWindowTitle("Camera, microphone and speakers")
         form = QFormLayout(dialog)
@@ -61,8 +66,13 @@ class DeviceSelection:
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.owner.capture.stop()
             self.values.update({key: combo.currentData() for key, combo in combos})
-            save_settings(self.values)
+            self.persist()
             self.changed()
+
+    def persist(self):
+        stored = load_settings()
+        stored.update({f'{key}_{self.owner.station}': value for key, value in self.values.items()})
+        save_settings(stored)
 
     def capture(self, transmit):
         camera, microphone, _ = self.selected()
@@ -92,7 +102,7 @@ class DeviceSelection:
                         granted(index+1)
                     else:
                         self.owner.window.show_error("Capture permission was not granted.")
-                app.requestPermission(permission, answered)
+                app.requestPermission(permission, self.owner, answered)
         granted()
 
 

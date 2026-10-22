@@ -311,10 +311,11 @@ class StationController(QObject):
     def pause(self, paused):
         self.capture.paused = paused
         self.command(dict(op='pause' if paused else 'resume'))
-        if paused:
-            self.preview.pause()
-        else:
-            self.preview.play()
+        if self.window.source_combo.currentData() == 'file':
+            if paused:
+                self.preview.pause()
+            else:
+                self.preview.play()
 
     def stop_media(self):
         self.capture.stop()
@@ -341,6 +342,7 @@ class StationController(QObject):
 
     def _process_error(self, error):
         if error == QProcess.ProcessError.FailedToStart:
+            self.capture.stop()
             self.pending_commands.clear()
             self.state = 'error'
             self.window.set_state('error', 'Could not start modem worker')
@@ -349,6 +351,7 @@ class StationController(QObject):
                 self._maybe_finish_close()
 
     def _finished(self, code, status):
+        self.capture.stop()
         self._stdout()
         self._stderr()
         self._close_received()
@@ -413,7 +416,7 @@ class StationController(QObject):
             self.capture.start(camera, microphone, transmit=transmit)
             if not transmit:
                 self.window.preview_button.setText('Stop pre&view')
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, RuntimeError, TypeError) as exc:
             self.capture_error(str(exc))
 
     def live_chunk(self, chunk):

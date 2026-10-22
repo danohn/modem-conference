@@ -67,3 +67,36 @@ def test_idle_start_does_not_open_modem_or_launch_worker(app, tmp_path):
     assert window.selected_port() == ''
     controller.shutdown()
     assert controller.log_file.closed
+
+
+def test_camera_pause_resume_never_plays_stale_movie_preview(app, tmp_path):
+    window = StationWindow('1')
+    controller = StationController(window, '1', tmp_path)
+    window.source_combo.setCurrentIndex(1)
+    commands, played = [], []
+    controller.command = commands.append
+    controller.preview.play = lambda: played.append(True)
+    controller.capture.active = controller.capture.sending = True
+    controller.pause(True)
+    assert controller.capture.paused
+    controller.pause(False)
+    assert not controller.capture.paused
+    assert commands == [{'op':'pause'}, {'op':'resume'}]
+    assert not played
+    controller.shutdown()
+    assert not controller.capture.active
+
+
+def test_worker_crash_releases_capture_and_unlocks_source(app, tmp_path):
+    window = StationWindow('1')
+    controller = StationController(window, '1', tmp_path)
+    controller.capture.active = controller.capture.sending = True
+    window.set_state('connected')
+    window.set_telemetry({'transmitting':True})
+    assert not window.source_combo.isEnabled()
+    controller._finished(1, QProcess.ExitStatus.CrashExit)
+    assert not controller.capture.active
+    assert not controller.capture.sending
+    assert window.source_combo.isEnabled()
+    assert controller.state == 'error'
+    controller.shutdown()

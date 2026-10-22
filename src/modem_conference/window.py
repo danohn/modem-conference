@@ -251,7 +251,7 @@ class StationWindow(QMainWindow):
         self.source_combo = QComboBox(objectName='sourceSelector')
         self.source_combo.addItem('Movie file', 'file')
         self.source_combo.addItem('Camera + microphone', 'camera')
-        self.source_combo.currentIndexChanged.connect(lambda: self.source_changed.emit(self.source_combo.currentData()))
+        self.source_combo.currentIndexChanged.connect(self._source_changed)
         self.source_combo.currentIndexChanged.connect(self._sync_controls)
         source_row.addWidget(self.source_combo)
         self.preview_button = self._button('Pre&view', 'previewButton', self.preview_requested.emit)
@@ -443,7 +443,7 @@ class StationWindow(QMainWindow):
         self.pause_button.setEnabled(self._state == 'connected' and self._transmitting)
         self.stop_button.setEnabled(self._state == 'connected' and self._transmitting)
         self.pause_button.setText('&Resume' if self._paused else '&Pause')
-        if self._movie:
+        if self._movie or self.source_combo.currentData() == 'camera':
             self.outgoing_label.setText('Paused' if self._paused else
                                         f'Sending to {self.number_edit.text().strip()}'
                                         if self._transmitting else 'Ready to transmit')
@@ -483,8 +483,11 @@ class StationWindow(QMainWindow):
             sent = float(values['sent_seconds'])
             self.movie_progress.setRange(0, 1000)
             self.movie_progress.setValue(round(1000 * sent / float(duration)) if duration else 0)
-            self.movie_details.setText(f'{_time(sent)} / {_time(float(duration))} · '
-                                       + ('Paused' if self._paused else 'Transmitting' if self._transmitting else 'Ready'))
+            if self.source_combo.currentData() == 'camera':
+                self.movie_details.setText('Camera + microphone · ' + ('Paused' if self._paused else 'Transmitting' if self._transmitting else 'Ready'))
+            else:
+                self.movie_details.setText(f'{_time(sent)} / {_time(float(duration))} · '
+                                           + ('Paused' if self._paused else 'Transmitting' if self._transmitting else 'Ready'))
         if 'video_description' in values:
             self.video_details.setText(str(values['video_description']))
         if 'peer' in values:
@@ -606,3 +609,16 @@ class StationWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent):
         self.closing.emit()
         super().closeEvent(event)
+
+    def _source_changed(self):
+        source = self.source_combo.currentData()
+        self.source_changed.emit(source)
+        if source == 'camera':
+            self.filename_label.setText('Camera + microphone')
+            self.filename_label.setToolTip('Select capture devices with Devices…')
+            self.movie_details.setText('Live capture · 128 × 96 · up to 2 frames/sec')
+            self.outgoing_label.setText('Preview or transmit to start capture')
+            self.local_video.set_frame(QImage())
+        else:
+            self.set_movie(self._movie)
+        self._sync_controls()
