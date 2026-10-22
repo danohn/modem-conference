@@ -11,6 +11,7 @@ import sys
 from PySide6.QtCore import QObject, QProcess, QTimer, QUrl, Signal
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from serial.tools import list_ports
+from h324.lifecycle import GUI_WORKER_SHUTDOWN_TIMEOUT
 
 from .helper import command as helper_command
 from .settings import load_settings, save_settings, serial_devices, device_identity, directories
@@ -430,9 +431,9 @@ class StationController(QObject):
             self.preparer.write(b'cancel\n')
             self.preparer.closeWriteChannel()
         self.command({'op': 'shutdown'})
-        # The worker may use up to 28 seconds for protocol close, modem
-        # restoration and process exit. Escalate only after that allowance.
-        self.shutdown_timer.start(30000)
+        # Share the worker/API restoration allowance rather than terminating
+        # while their cooperative cleanup budget is still running.
+        self.shutdown_timer.start(round(GUI_WORKER_SHUTDOWN_TIMEOUT*1000))
         self._maybe_finish_close()
 
     def _maybe_finish_close(self):

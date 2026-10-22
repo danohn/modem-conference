@@ -9,6 +9,7 @@ import time
 import pytest
 from PySide6.QtCore import QEventLoop, QProcess, QTimer
 from PySide6.QtWidgets import QApplication
+from h324.lifecycle import GUI_WORKER_SHUTDOWN_TIMEOUT, WORKER_SHUTDOWN_TIMEOUT
 
 from modem_conference.controller import StationController
 from modem_conference.window import StationWindow
@@ -219,7 +220,8 @@ def test_shutdown_kills_windows_style_helpers_that_ignore_terminate(app, tmp_pat
     worker, converter = Unresponsive(), Unresponsive()
     controller.process, controller.preparer = worker, converter
     controller.shutdown()
-    assert controller.shutdown_timer.interval() == 30000
+    assert controller.shutdown_timer.interval() == round(GUI_WORKER_SHUTDOWN_TIMEOUT*1000)
+    assert controller.shutdown_timer.interval() > WORKER_SHUTDOWN_TIMEOUT*1000
     assert b'"op": "shutdown"' in worker.writes[0]
     assert converter.writes == [b'cancel\n']
     assert not controller._closed
