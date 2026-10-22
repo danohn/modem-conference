@@ -9,6 +9,8 @@ import sys
 def command(operation: str, arguments=()) -> tuple[str, list[str]]:
     if getattr(sys, "frozen", False) or "__compiled__" in globals():
         suffix = ".exe" if sys.platform == "win32" else ""
+        if Path(sys.executable).stem == 'modem-conference-helper':
+            return sys.executable, [operation, *map(str, arguments)]
         base = Path(sys.executable).parent
         candidate = (base.parent / "Helpers/modem-conference-helper.dist/modem-conference-helper"
                      if sys.platform == "darwin" else
@@ -29,13 +31,16 @@ def main(argv=None):
                           "asset": files("modem_conference").joinpath("assets/combo-arrow.svg").is_file()}))
         return 0
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("worker", "prepare"))
-    args, remaining = parser.parse_known_args(argv)
+    parser.add_argument("operation", choices=("worker", "prepare", "acceptance"))
+    args = parser.parse_args(argv[:1])
+    remaining = argv[1:]
     sys.argv = [sys.argv[0], *remaining]
     if args.operation == "worker":
         from h324.worker import main as run
-    else:
+    elif args.operation == "prepare":
         from .media import main as run
+    else:
+        from .acceptance import main as run
     return run()
 
 

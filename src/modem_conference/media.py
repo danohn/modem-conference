@@ -58,7 +58,7 @@ def _binary(name: str) -> str:
 
 
 def _run(command: list[str]) -> bytes:
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     deadline = time.monotonic() + 180
     try:
         while True:

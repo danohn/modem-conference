@@ -4,6 +4,20 @@ Run from a development environment with the client and library installed. The
 script does not assume port names, phone numbers, local network equipment, or
 particular camera/microphone identifiers.
 
+Native Windows downloads need no Python for these checks. From PowerShell in
+the extracted application directory, use the console helper (quote paths with spaces):
+
+```powershell
+& '.\helper\modem-conference-helper.exe' prepare 'C:\Movies\Test clip.mp4' 'C:\Movies\Prepared clip'
+& '.\helper\modem-conference-helper.exe' acceptance --mode file/file --caller-port COM3 --answerer-port COM4 --number NUMBER --bundle1 'C:\Movies\Prepared clip' --bundle2 'C:\Movies\Prepared clip' --seconds 30 --output '.\acceptance-file-file.json'
+& '.\helper\modem-conference-helper.exe' acceptance --mode stress --seconds 600 --output '.\acceptance-stress.json'
+```
+
+For file/camera, change `--mode file/camera`, omit `--bundle2`, and select the
+camera and microphone when prompted. Use headphones; camera/microphone access
+must be enabled for desktop applications in Windows privacy settings. Linux
+native downloads use `./helper/modem-conference-helper acceptance ...`.
+
 For actual macOS camera capture, run the script through the source-install app
 bundle so the OS sees the camera/microphone usage descriptions. First run
 `modem-conference --install-macos-launcher`, then invoke the printed app's

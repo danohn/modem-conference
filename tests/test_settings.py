@@ -32,3 +32,13 @@ def test_frozen_windows_helper_does_not_pass_python_module_flags(monkeypatch, tm
     program, args = helper.command('prepare', ['source with spaces.mp4', 'bundle'])
     assert program == str(binary)
     assert args == ['prepare', 'source with spaces.mp4', 'bundle']
+
+
+def test_frozen_acceptance_helper_reuses_own_executable(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(sys, 'platform', 'win32')
+    executable = str(tmp_path/'helper/modem-conference-helper.exe')
+    monkeypatch.setattr(sys, 'executable', executable)
+    program, arguments = helper.command('worker', ['--station','1'])
+    assert program == executable
+    assert arguments == ['worker','--station','1']

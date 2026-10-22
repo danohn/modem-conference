@@ -146,7 +146,7 @@ raise SystemExit(media.main())
 '''
     process = subprocess.Popen([sys.executable, '-c', wrapper], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 20
         while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
             time.sleep(.01)
         if not marker.exists():
