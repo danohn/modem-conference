@@ -10,6 +10,10 @@ on:
         description: Client branch, tag or full commit ID to diagnose
         default: main
         type: string
+      qt_version:
+        description: Official PySide6 version to diagnose (dependency comparison only)
+        default: '6.12.0'
+        type: string
 permissions:
   contents: read
 jobs:
@@ -19,6 +23,7 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONFAULTHANDLER: '1'
+      QT_DIAGNOSTIC_VERSION: ${{ inputs.qt_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -41,7 +46,11 @@ jobs:
           uv build --project _core --out-dir "$RUNNER_TEMP/core-dist"
           uv build --project _client --out-dir "$RUNNER_TEMP/client-dist"
           uv venv "$RUNNER_TEMP/qt diagnostic venv" --python 3.11
-          uv pip install --python "$RUNNER_TEMP/qt diagnostic venv" "$RUNNER_TEMP"/core-dist/*.whl "$RUNNER_TEMP"/client-dist/*.whl pytest pytest-qt
+          uv pip install --python "$RUNNER_TEMP/qt diagnostic venv" "$RUNNER_TEMP"/core-dist/*.whl "PySide6==$QT_DIAGNOSTIC_VERSION" platformdirs pytest pytest-qt
+          # A diagnostic can compare an older Qt version before deciding whether
+          # to change the product's dependency constraint. Release CI resolves
+          # and verifies the actual declared dependency normally.
+          uv pip install --python "$RUNNER_TEMP/qt diagnostic venv" --no-deps "$RUNNER_TEMP"/client-dist/*.whl
       - name: Preserve finalization results for minimal, isolated and combined cases
         working-directory: ${{ runner.temp }}
         run: uv run --no-project --python "$RUNNER_TEMP/qt diagnostic venv" python "$GITHUB_WORKSPACE/scripts/diagnose_qt_shutdown.py" --tests "$GITHUB_WORKSPACE/_client/tests" --output "$RUNNER_TEMP/qt-shutdown.json"
