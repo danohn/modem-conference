@@ -4,6 +4,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import shutil
 import time
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtWidgets import QApplication
@@ -31,6 +32,17 @@ def test_high_motion_whole_picture_rejected_then_low_motion_recovers():
     assert not bucket.admit(400, 2.1)
     assert bucket.admit(200, 2.6)
     assert bucket.credit >= 0
+
+
+def test_audio_state_slot_avoids_qt_alias_conversion_and_queries_source():
+    capture = Capture()
+    assert capture.metaObject().indexOfSlot('_audio_state()') >= 0
+    states = []
+    capture.audio_state.connect(states.append)
+    capture.audio = SimpleNamespace(state=lambda: SimpleNamespace(name='ActiveState'))
+    capture._audio_state()
+    assert states == ['ActiveState']
+    capture.audio = None
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'), reason='FFmpeg required')

@@ -19,7 +19,7 @@ import time
 import tracemalloc
 
 from PySide6.QtCore import QProcess, QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from modem_conference.capture import Capture
 from modem_conference.controller import StationController, available_ports
@@ -63,6 +63,10 @@ def rss_bytes(pids):
 def stress(args, app):
     """Exercise actual FFmpeg encoders without requesting an OS capture device."""
     capture = Capture()
+    progress = QLabel('Modem Conference encoder acceptance\nGenerated RGB/PCM · no capture devices opened')
+    progress.setWindowTitle('Continuous encoder acceptance')
+    progress.resize(460, 90)
+    progress.show()
     capture.active = capture.sending = True
     capture.started_at = time.monotonic()
     capture._video_encoder()
@@ -75,6 +79,7 @@ def stress(args, app):
               'errors': [], 'statuses': [], 'max_encoder_children': 0,
               'max_pending_input_bytes': 0, 'max_encoded_parser_bytes': 0,
               'rss_samples': [], 'peak_combined_rss_bytes': 0}
+    report['audio_input_pcm_bytes'] = 0
     tracemalloc.start()
     def chunk(value):
         counts[value['lcn']] += 1
@@ -82,25 +87,36 @@ def stress(args, app):
     capture.error.connect(report['errors'].append)
     capture.status.connect(lambda value: report['statuses'].append(value) if len(report['statuses']) < 1000 else None)
     began = time.monotonic()
-    last_audio = last_video = began
+    last_video = began
     audio_before_recovery = None
     rng = random.Random(324)
     forced = False
     last_rss = 0
     def tick():
-        nonlocal last_audio, last_video, forced, audio_before_recovery, last_rss
+        nonlocal last_video, forced, audio_before_recovery, last_rss
         now = time.monotonic()
         elapsed = now-began
         if elapsed >= args.seconds or report['errors']:
             capture.stop()
+            progress.close()
             timer.stop()
             QTimer.singleShot(700, app.quit)
             return
         audio = capture.encoders.get(1)
-        if audio and audio.state() == QProcess.ProcessState.Running and now-last_audio >= .02:
-            # 20 ms of real 8 kHz PCM; G.723.1 emits 30 ms frames.
-            audio.write(b'\0'*320)
-            last_audio = now
+        if audio and audio.state() == QProcess.ProcessState.Running:
+            # Cumulative sample clock: timer jitter must not silently reduce the
+            # simulated microphone rate. Catch up bounded gaps or fail visibly.
+            expected_bytes = int(min(elapsed, args.seconds)*8000)*2
+            missing = expected_bytes-report['audio_input_pcm_bytes']
+            if missing > 16000 or audio.bytesToWrite()+missing > 64000:
+                report['errors'].append('Synthetic microphone clock fell over one second behind or input queue overflowed')
+                return
+            if missing > 0:
+                written = audio.write(b'\0'*missing)
+                if written != missing:
+                    report['errors'].append('Could not enqueue all generated PCM samples')
+                    return
+                report['audio_input_pcm_bytes'] += written
         if elapsed > 3 and not forced:
             forced = True
             audio_before_recovery = counts[1]
@@ -125,6 +141,8 @@ def stress(args, app):
             rss = rss_bytes([os.getpid(), *[int(p.processId()) for p in capture.encoders.values() if p.processId()]])
             report['rss_samples'].append({'elapsed': round(elapsed, 1), 'combined_rss_bytes': rss})
             report['peak_combined_rss_bytes'] = max(report['peak_combined_rss_bytes'], rss or 0)
+            progress.setText(f'Encoder acceptance: {elapsed:.0f} / {args.seconds:g} seconds\n'
+                             f'Audio frames: {counts[1]:,} · Video pictures: {counts[2]:,}')
     timer = QTimer()
     timer.timeout.connect(tick); timer.start(10)
     app.exec()
@@ -133,8 +151,12 @@ def stress(args, app):
                   audio_continued_after_restart=audio_before_recovery is not None and counts[1] > audio_before_recovery,
                   peak_python_heap_bytes=peak, elapsed_seconds=time.monotonic()-began,
                   note='Python heap plus sampled parent/FFmpeg combined RSS; inspect RSS trend for long-run growth.')
+    report['audio_input_duration_seconds'] = report['audio_input_pcm_bytes']/16000
+    report['expected_audio_frames'] = int(args.seconds*1000/30)
+    report['audio_output_ratio'] = counts[1]/max(1, report['expected_audio_frames'])
     report['passed'] = (not report['errors'] and counts[1] > 0 and counts[2] > 0
                         and report['audio_continued_after_restart']
+                        and report['audio_output_ratio'] >= .90
                         and report['max_encoder_children'] <= 4
                         and report['max_pending_input_bytes'] < 256_000)
     return report

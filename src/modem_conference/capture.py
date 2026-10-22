@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QObject, QProcess, QTimer, Qt, Signal
+from PySide6.QtCore import QObject, QProcess, QTimer, Qt, Signal, Slot
 from PySide6.QtMultimedia import (QAudioFormat, QAudioSource, QCamera,
                                  QMediaCaptureSession, QVideoSink)
 
@@ -56,6 +56,7 @@ class Capture(QObject):
     error = Signal(str)
     status = Signal(str)
     stopped = Signal()
+    audio_state = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -197,7 +198,13 @@ class Capture(QObject):
         if detail and generation == self._generation:
             self.status.emit(detail[:500])
 
-    def _audio_state(self, _state):
+    @Slot()
+    def _audio_state(self):
+        # PySide6 6.12 cannot marshal QAudio::State into a dynamic Python slot
+        # on all backends. A registered zero-argument slot avoids converting
+        # that alias; query the owning source for state/error instead.
+        if self.audio:
+            self.audio_state.emit(self.audio.state().name)
         if self.active and self.audio and self.audio.error().value:
             self._fail(f"Microphone error: {self.audio.error().name}")
 
