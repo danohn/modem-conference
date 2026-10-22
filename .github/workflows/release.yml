@@ -82,10 +82,10 @@ jobs:
         run: uv run --no-project scripts/verify_index.py --index https://test.pypi.org dist/*.whl
       - name: Install retrieved wheel using released PyPI dependencies
         run: |
-          uv venv .venv --python 3.14
-          uv pip install --python .venv verified-index/*.whl
+          uv venv "$RUNNER_TEMP/test venv" --python 3.14
+          uv pip install --python "$RUNNER_TEMP/test venv" verified-index/*.whl
           cd "$RUNNER_TEMP"
-          uv run --no-project --python "$GITHUB_WORKSPACE/.venv" python "$GITHUB_WORKSPACE/scripts/installed_check.py" --client --checkout "$GITHUB_WORKSPACE"
+          uv run --no-project --python "$RUNNER_TEMP/test venv" python "$GITHUB_WORKSPACE/scripts/installed_check.py" --client --checkout "$GITHUB_WORKSPACE"
   native:
     if: inputs.publish_pypi
     needs: verify-testpypi

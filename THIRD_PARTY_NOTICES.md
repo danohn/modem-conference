@@ -41,10 +41,14 @@ as command-line tools in the application. Nuitka's compiler license and runtime
 exception apply to its own material; compiling does not change the license of
 our application. See <https://nuitka.net/pages/overview.html#license>.
 
-FFmpeg and ffprobe are external dependencies and are not bundled in these
-downloads. Their license depends on the independently installed build and enabled
-codecs; obtain source and license information from that distributor and
-<https://ffmpeg.org/legal.html>.
+FFmpeg and ffprobe **executables** are external dependencies and are not bundled
+in these downloads. Their license depends on the independently installed build
+and enabled codecs; obtain source and license information from that distributor
+and <https://ffmpeg.org/legal.html>. Qt Multimedia's separately licensed FFmpeg
+backend can include LGPL FFmpeg shared libraries as part of Qt's runtime. Those
+libraries and their notices are distinct from the external command-line encoder.
+The Qt 6.12 wheel backend reports FFmpeg 9.0.1 (LGPL-2.1-or-later); corresponding
+FFmpeg source is at <https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz>.
 
 Test media is generated synthetically. Fixture provenance and generation details
 are in the corresponding test-data manifest. No historic product artwork, font,

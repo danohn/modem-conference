@@ -58,7 +58,8 @@ jobs:
       - name: Install explicitly selected development core
         if: inputs.core_ref != ''
         run: |
-          git -C _core rev-parse HEAD
+          H324_BUILD_REF=$(git -C _core rev-parse HEAD)
+          echo "H324_BUILD_REF=$H324_BUILD_REF" >> "$GITHUB_ENV"
           uv build --project _core --out-dir "$RUNNER_TEMP/core-dist"
           uv pip install --python .venv "$RUNNER_TEMP"/core-dist/*.whl
       - name: Install client wheel and pinned build tools

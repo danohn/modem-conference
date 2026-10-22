@@ -58,7 +58,9 @@ and the [Nuitka standalone manual](https://nuitka.net/user-documentation/user-ma
 Downloads include Python, Qt shared libraries, application resources and license
 notices. They require neither Python nor `uv` on the receiving machine. FFmpeg
 and ffprobe remain external and must be selected in settings or available on
-PATH. No FFmpeg executable is bundled. Qt shared libraries remain replaceable;
+PATH. No FFmpeg executable is bundled. Qt Multimedia may include LGPL FFmpeg
+shared libraries for its own backend; the bundled notices cover them separately.
+Qt shared libraries remain replaceable;
 third-party license notices and source links are included under `notices` (macOS:
 `Contents/Resources/notices`). Compilation reports are CI diagnostic artifacts,
 not part of the public native archive.
