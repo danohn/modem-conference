@@ -127,3 +127,41 @@ def test_stop_pending_preview_keeps_idle_modem_worker_unstarted(app, tmp_path):
     assert not window._capture_pending
     assert controller.process.state() == QProcess.ProcessState.NotRunning
     controller.shutdown()
+
+
+def test_shutdown_kills_windows_style_helpers_that_ignore_terminate(app, tmp_path, caplog):
+    """No real subprocess or modem: exercise both bounded escalation stages."""
+    window = StationWindow('1')
+    controller = StationController(window, '1', tmp_path)
+    class Unresponsive:
+        def __init__(self):
+            self.running = True
+            self.terminated = self.killed = 0
+            self.writes = []
+        def state(self):
+            return QProcess.ProcessState.Running if self.running else QProcess.ProcessState.NotRunning
+        def write(self, data): self.writes.append(data)
+        def closeWriteChannel(self): pass
+        def terminate(self): self.terminated += 1  # Windows WM_CLOSE ignored.
+        def kill(self):
+            self.killed += 1
+            self.running = False
+    worker, converter = Unresponsive(), Unresponsive()
+    controller.process, controller.preparer = worker, converter
+    controller.shutdown()
+    assert controller.shutdown_timer.interval() == 20000
+    assert b'"op": "shutdown"' in worker.writes[0]
+    assert converter.writes == [b'cancel\n']
+    assert not controller._closed
+    controller._shutdown_timeout()
+    assert worker.terminated == converter.terminated == 1
+    assert worker.killed == converter.killed == 0
+    assert controller.shutdown_escalation_timer.interval() == 5000
+    assert controller.shutdown_escalation_timer.isActive()
+    controller._shutdown_kill()
+    assert worker.killed == converter.killed == 1
+    assert controller._closed and controller.shutdown_forced
+    assert not controller.shutdown_escalation_timer.isActive()
+    assert 'Cleanup was not confirmed' in caplog.text
+    text = (controller.directory/'controller.jsonl').read_text()
+    assert '"cleanup_confirmed": false' in text

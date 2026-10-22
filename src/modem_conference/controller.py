@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import json
+import logging
 from pathlib import Path
 import sys
 
@@ -88,6 +89,10 @@ class StationController(QObject):
         self.shutdown_timer = QTimer(self)
         self.shutdown_timer.setSingleShot(True)
         self.shutdown_timer.timeout.connect(self._shutdown_timeout)
+        self.shutdown_escalation_timer = QTimer(self)
+        self.shutdown_escalation_timer.setSingleShot(True)
+        self.shutdown_escalation_timer.timeout.connect(self._shutdown_kill)
+        self.shutdown_forced = False
 
     def log(self, event, **fields):
         if not self.log_file.closed:
@@ -399,18 +404,37 @@ class StationController(QObject):
             return
         self._closed = True
         self.shutdown_timer.stop()
+        self.shutdown_escalation_timer.stop()
         self._close_received()
         self.log('controller_closed')
         self.log_file.close()
         self.closed.emit()
 
     def _shutdown_timeout(self):
-        # Terminate first: the worker handles SIGTERM with its modem cleanup.
+        # Windows console helpers can ignore QProcess.terminate(). Bound this
+        # second attempt too; IPC remains the primary cleanup path.
         self.log('shutdown_timeout', message='Requesting worker termination after graceful shutdown timeout')
         if self.process.state() != QProcess.ProcessState.NotRunning:
             self.process.terminate()
         if self.preparer.state() != QProcess.ProcessState.NotRunning:
-            self.preparer.kill()
+            self.preparer.terminate()
+        self._maybe_finish_close()
+        if not self._closed:
+            self.shutdown_escalation_timer.start(5000)
+
+    def _shutdown_kill(self):
+        for role, process in (('modem worker', self.process), ('movie converter', self.preparer)):
+            if process.state() == QProcess.ProcessState.NotRunning:
+                continue
+            self.shutdown_forced = True
+            message = (f'Force-stopping unresponsive {role}. Cleanup was not confirmed; '
+                       'modem restoration must be checked before another call.'
+                       if role == 'modem worker' else
+                       'Force-stopping unresponsive movie converter. Converter child cleanup was not confirmed.')
+            self.log('shutdown_forced_kill', role=role, cleanup_confirmed=False, message=message)
+            logging.getLogger(__name__).warning(message)
+            self.window.append_log(message)
+            process.kill()
         self._maybe_finish_close()
 
     def start_capture(self, camera, microphone, transmit):
