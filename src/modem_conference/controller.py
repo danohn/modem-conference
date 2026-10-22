@@ -50,6 +50,7 @@ class StationController(QObject):
         self.bundle = None
         self.movie = None
         self.state = 'idle'
+        self._call_failed = False
         self.closing = False
         self._closed = False
         self.call_number = 0
@@ -142,6 +143,7 @@ class StationController(QObject):
             settings[f'number_{self.station}'] = number
         save_settings(settings)
         self.call_number += 1
+        self._call_failed = False
         self.call_directory = self.directory / f'call-{self.call_number:03d}'
         # Worker creates this new directory, owns its modem, and records cleanup.
         self._close_received()
@@ -155,9 +157,8 @@ class StationController(QObject):
     def _stdout(self):
         self.buffer.extend(bytes(self.process.readAllStandardOutput()))
         if len(self.buffer) > 2_000_000:
-            self.window.show_error('Modem worker sent an oversized response; ending the call.')
             self.buffer.clear()
-            self.command({'op': 'hangup'})
+            self._terminal_error('Modem worker sent an oversized response; ending the call.')
             return
         while b'\n' in self.buffer:
             line, _, rest = self.buffer.partition(b'\n')
@@ -184,6 +185,8 @@ class StationController(QObject):
         if kind != 'media':
             self.log('worker_event', data=value)
         if kind == 'state':
+            if self._call_failed and value['state'] not in ('idle', 'error', 'hanging_up', 'disconnecting'):
+                return
             if value['state'] != self.state:
                 self.devices.cancel_capture_request()
             self.state = value['state']
@@ -196,6 +199,10 @@ class StationController(QObject):
                 self.playback.stop()
                 self._close_received()
         elif kind == 'telemetry':
+            if self._call_failed:
+                # A modal error dialog can run a nested Qt event loop while
+                # earlier connected telemetry is still buffered in the pipe.
+                return
             telemetry = dict(value)
             telemetry.update(cd=value.get('carrier', False), tx=value.get('tx_active', False),
                              rx=value.get('rx_active', False),
@@ -204,6 +211,8 @@ class StationController(QObject):
                              transmitting=value.get('media_transmitting', False))
             self.window.set_telemetry(telemetry)
         elif kind == 'media':
+            if self._call_failed:
+                return
             lcn = int(value['lcn'])
             if lcn not in (1, 2):
                 raise ValueError('unknown media channel')
@@ -219,6 +228,8 @@ class StationController(QObject):
                 self.received_files[lcn].flush()
             self.playback.feed(lcn, payload)
         elif kind == 'media_started':
+            if self._call_failed:
+                return
             if self.window.source_combo.currentData() == 'file':
                 self.preview.setPosition(0)
                 self.preview.play()
@@ -229,16 +240,42 @@ class StationController(QObject):
                 self.capture.stop()
             self.window.set_telemetry({'transmitting': False, 'paused': False})
         elif kind == 'video_overload':
-            self.capture.pause_video()
+            if not self._call_failed:
+                self.capture.pause_video()
         elif kind == 'video_reset':
-            self.capture.reset_video()
+            if not self._call_failed:
+                self.capture.reset_video()
         elif kind == 'error':
-            self.window.show_error(value.get('message', 'The modem worker reported an error.'))
+            message = value.get('message', 'The modem worker reported an error.')
+            if value.get('fatal', True) is False and not self._call_failed:
+                self.window.show_error(message)
+            else:
+                self._terminal_error(message)
         elif kind == 'log':
             self.window.append_log(value.get('message', ''))
         elif kind == 'closed':
             self._close_received()
         self.event_received.emit(value)
+
+    def _terminal_error(self, message):
+        if self._call_failed or self.closing:
+            self.window.append_log(message)
+            return
+        # Stop producers and invalidate permission callbacks before opening a
+        # modal dialog. Its nested event loop must never continue a failed call.
+        self._call_failed = True
+        self.state = 'error'
+        self.devices.cancel_capture_request()
+        self.capture.stop()
+        self.preview.stop()
+        self.playback.stop()
+        self._close_received()
+        self.pending_commands = [value for value in self.pending_commands
+                                 if value['op'] in ('shutdown', 'hangup')]
+        self.window.set_state('error', message)
+        self.window.set_telemetry({'transmitting': False, 'paused': False})
+        self.command({'op': 'hangup'})
+        self.window.show_error(message)
 
     def _close_received(self):
         for file in self.received_files.values():
@@ -393,7 +430,9 @@ class StationController(QObject):
             self.preparer.write(b'cancel\n')
             self.preparer.closeWriteChannel()
         self.command({'op': 'shutdown'})
-        self.shutdown_timer.start(20000)
+        # The worker may use up to 28 seconds for protocol close, modem
+        # restoration and process exit. Escalate only after that allowance.
+        self.shutdown_timer.start(30000)
         self._maybe_finish_close()
 
     def _maybe_finish_close(self):
@@ -463,6 +502,9 @@ class StationController(QObject):
 
     def capture_error(self, message):
         self.capture.stop()
+        if self._call_failed or self.closing:
+            self.window.append_log(message)
+            return
         if self.state == 'connected':
             self.command({'op': 'live_stop'})
         self.window.set_telemetry({'transmitting': False, 'paused': False})

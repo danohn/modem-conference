@@ -7,7 +7,7 @@ import sys
 import time
 
 import pytest
-from PySide6.QtCore import QProcess
+from PySide6.QtCore import QEventLoop, QProcess, QTimer
 from PySide6.QtWidgets import QApplication
 
 from modem_conference.controller import StationController
@@ -129,6 +129,76 @@ def test_stop_pending_preview_keeps_idle_modem_worker_unstarted(app, tmp_path):
     controller.shutdown()
 
 
+def test_worker_error_stops_capture_before_modal_nested_events(app, tmp_path):
+    window = StationWindow('1')
+    controller = StationController(window, '1', tmp_path)
+    window.source_combo.setCurrentIndex(1)
+    controller.state = 'connected'
+    window.set_state('connected')
+    window.set_telemetry({'transmitting': True})
+    controller.capture.active = controller.capture.sending = True
+    controller.devices._capture_pending = True
+    window.set_capture_pending(True)
+    controller.pending_commands = [{'op': 'live_chunk', 'payload': 'stale'}]
+    commands, dialogs = [], []
+    controller.command = commands.append
+
+    def show_error(message):
+        dialogs.append(message)
+        assert controller.state == window._state == 'error'
+        assert not controller.capture.active and not controller.capture.sending
+        assert not controller.devices._capture_pending and not window._capture_pending
+        assert not window._transmitting and not controller.pending_commands
+        loop = QEventLoop()
+        nested_errors = []
+        def while_dialog_open():
+            try:
+                # Queued PCM/camera chunks and older worker messages can arrive
+                # while QMessageBox.exec() is running its nested event loop.
+                controller.capture.chunk.emit({'lcn': 1, 'payload': b'x'*24})
+                controller.handle_event({'event': 'error', 'message': 'No connected call'})
+                controller.capture_error('Late encoder failure')
+                controller.handle_event({'event': 'state', 'state': 'connected'})
+                controller.handle_event({'event': 'telemetry', 'state': 'connected', 'media_transmitting': True})
+                controller.handle_event({'event': 'media_started'})
+                assert controller.state == window._state == 'error'
+                assert not window._transmitting and not controller.capture.active
+            except BaseException as exc:
+                nested_errors.append(exc)
+            finally:
+                loop.quit()
+        QTimer.singleShot(0, while_dialog_open)
+        loop.exec()
+        assert not nested_errors
+    window.show_error = show_error
+    controller.handle_event({'event': 'error', 'message': 'Transport failed'})
+    assert dialogs == ['Transport failed']
+    assert commands == [{'op': 'hangup'}]
+    # Cleanup remains observable and unlocks the UI after the terminal error.
+    controller.handle_event({'event': 'state', 'state': 'idle'})
+    assert controller.state == 'idle'
+    controller.shutdown()
+
+
+def test_recoverable_worker_error_preserves_connected_media(app, tmp_path):
+    window = StationWindow('1')
+    controller = StationController(window, '1', tmp_path)
+    controller.state = 'connected'
+    window.set_state('connected')
+    window.set_telemetry({'transmitting': True})
+    controller.capture.active = controller.capture.sending = True
+    commands, errors = [], []
+    controller.command = commands.append
+    window.show_error = errors.append
+    controller.handle_event({'event': 'error', 'fatal': False,
+                             'message': 'Cannot load prepared movie'})
+    assert errors == ['Cannot load prepared movie']
+    assert controller.state == window._state == 'connected'
+    assert controller.capture.sending and window._transmitting
+    assert not commands and not controller._call_failed
+    controller.shutdown()
+
+
 def test_shutdown_kills_windows_style_helpers_that_ignore_terminate(app, tmp_path, caplog):
     """No real subprocess or modem: exercise both bounded escalation stages."""
     window = StationWindow('1')
@@ -149,7 +219,7 @@ def test_shutdown_kills_windows_style_helpers_that_ignore_terminate(app, tmp_pat
     worker, converter = Unresponsive(), Unresponsive()
     controller.process, controller.preparer = worker, converter
     controller.shutdown()
-    assert controller.shutdown_timer.interval() == 20000
+    assert controller.shutdown_timer.interval() == 30000
     assert b'"op": "shutdown"' in worker.writes[0]
     assert converter.writes == [b'cancel\n']
     assert not controller._closed

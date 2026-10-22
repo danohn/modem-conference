@@ -137,6 +137,15 @@ manual device unplugging, denied permissions, a busy camera, disconnects,
 pause/resume, repeated sends, high-motion-to-quiet-scene recovery, and closing
 during initialization/conversion.
 
+Normal window close first asks the helper to shut down over IPC and allows
+30 seconds for protocol close and modem restoration before requesting process
+termination. A helper that still has not exited five seconds later is killed,
+and the log explicitly records that cleanup was not confirmed. A fatal worker
+error stops local capture before displaying its message and requests hangup;
+recoverable command or bundle errors identified by `fatal: false` preserve
+the connected call. Messages from older helpers without that field are treated
+as fatal. Error dialogs return control to the worker event reader immediately.
+
 Hardware results belong in release validation notes only after execution. A
 passing synthetic stress test is not physical camera/microphone or Linux modem
 validation.

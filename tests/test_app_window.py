@@ -5,7 +5,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QSignalSpy
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from modem_conference.theme import apply_theme
 from modem_conference.window import StationWindow
@@ -187,3 +188,23 @@ def test_camera_video_pause_is_visible_across_telemetry_until_new_picture(window
     window.set_capture_video_state('paused')
     window.set_state('idle')
     assert window._capture_video_state == 'stopped'
+
+
+def test_error_dialog_returns_without_nested_loop_and_is_bounded(window, app):
+    ticked = []
+    def close_dialog():
+        ticked.append(True)
+        for dialog in window.findChildren(QMessageBox):
+            dialog.accept()
+    QTimer.singleShot(0, close_dialog)
+    window.show_error('First error')
+    # A warning()/exec() implementation would already have run the timer here.
+    assert not ticked
+    dialog = window._error_dialog
+    assert dialog is not None and dialog.parent() is window
+    window.show_error('Second error')
+    assert window._error_dialog is dialog
+    assert len(window.findChildren(QMessageBox)) == 1
+    assert dialog.text() == 'Second error'
+    app.processEvents()
+    assert ticked and window._error_dialog is None

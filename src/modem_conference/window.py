@@ -137,6 +137,7 @@ class StationWindow(QMainWindow):
         self._transmitting = False
         self._paused = False
         self._diagnostics = None
+        self._error_dialog = None
         self.setWindowTitle(f'Modem Conference — Station {self.station}')
         self.setMinimumSize(548, 680)
         self.resize(568, 722)
@@ -580,7 +581,25 @@ class StationWindow(QMainWindow):
     @Slot(str)
     def show_error(self, message: str):
         self.append_log(f'Error: {message}')
-        QMessageBox.warning(self, 'Modem Conference', message)
+        if self._error_dialog is not None:
+            self._error_dialog.setText(message)
+            self._error_dialog.raise_()
+            return
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle('Modem Conference')
+        dialog.setText(message)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._error_dialog = dialog
+        def finished(_result):
+            if self._error_dialog is dialog:
+                self._error_dialog = None
+        dialog.finished.connect(finished)
+        # Return to the worker pipe reader; exec()/warning() would suspend its
+        # outer slot even while a nested Qt event loop kept capture running.
+        dialog.open()
 
     def _update_diagnostics(self):
         if self._diagnostics is not None:
