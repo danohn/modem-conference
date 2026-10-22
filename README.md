@@ -104,4 +104,6 @@ depends on the released `h324==0.1.0a1`; no local path is embedded in the packag
 
 Our original code and synthetic test fixtures are MIT licensed. Qt/PySide6,
 FFmpeg and other dependencies retain their own licenses. See the release
-third-party notices; FFmpeg is not distributed by this project.
+third-party notices. The external FFmpeg and ffprobe executables are not
+bundled; Qt Multimedia may include separately licensed FFmpeg shared libraries
+as part of its runtime.
